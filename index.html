@@ -1,667 +1,576 @@
 <!doctype html>
 <html lang="id">
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width,initial-scale=1,viewport-fit=cover"
-    />
-    <meta name="theme-color" content="#000" />
-    <title>AI Tracker Mobile</title>
-    <style>
-      * {
-        box-sizing: border-box;
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000">
+<title>AI Tracker</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,sans-serif}
+#app{position:fixed;inset:0;background:#000}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+canvas{pointer-events:none}
+.top{position:absolute;z-index:5;top:max(14px,env(safe-area-inset-top));left:12px;right:12px;display:flex;justify-content:space-between}
+.badge{background:#000b;padding:8px 11px;border-radius:20px;font-weight:800;font-size:12px;backdrop-filter:blur(8px)}
+.actions{position:absolute;z-index:5;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:12px}
+button{border:0;color:#fff;background:#000b;border-radius:50%;width:52px;height:52px;font-weight:800;backdrop-filter:blur(8px)}
+button.on{background:#ec4899}
+button:disabled{opacity:.4}
+#start{position:absolute;z-index:6;left:50%;bottom:max(28px,env(safe-area-inset-bottom));transform:translateX(-50%);border-radius:28px;width:auto;height:auto;padding:14px 24px;background:#ec4899;font-size:15px}
+#hint{position:absolute;z-index:5;left:50%;top:72%;transform:translate(-50%,-50%);background:#000b;padding:10px 14px;border-radius:16px;text-align:center;font-size:13px;max-width:84%}
+#panel{position:absolute;z-index:7;left:12px;right:12px;bottom:12px;background:#000d;border-radius:16px;padding:12px;display:none}
+#panel.show{display:block}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+#panel button{width:auto;height:38px;border-radius:10px;background:#333}
+input{width:100%}
+#error{color:#ff8c8c;font-size:12px;margin-top:6px;word-break:break-word}
+#permission{position:absolute;z-index:10;inset:0;background:#000e;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+.card{max-width:360px;background:#151515;border-radius:22px;padding:24px}
+.card button{width:auto;height:auto;border-radius:12px;padding:13px 20px;background:#ec4899}
+.hide{display:none!important}
+#logs{position:absolute;z-index:4;left:12px;top:58px;max-width:62%;max-height:100px;overflow:auto;background:#0009;padding:7px;border-radius:10px;font-size:10px}
+</style>
+</head>
+<body>
+<div id="app">
+<video id="video" autoplay muted playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div class="top">
+  <span class="badge">AI TRACKER</span>
+  <span id="status" class="badge">Kamera OFF</span>
+</div>
+
+<div class="actions">
+  <button id="switch" disabled aria-label="Ganti kamera">↻</button>
+  <button id="flash" disabled aria-label="Flash">⚡</button>
+  <button id="ai" disabled aria-label="AI">AI</button>
+  <button id="panelBtn" aria-label="Pengaturan">⚙</button>
+</div>
+
+<button id="start">Buka Kamera</button>
+<div id="hint">Tekan Buka Kamera</div>
+<div id="logs">Belum ada deteksi</div>
+
+<div id="panel">
+  <div class="row">
+    <button id="load">Muat Model AI</button>
+    <button id="export">CSV</button>
+  </div>
+  <label>
+    Confidence <b id="confText">50%</b>
+    <input id="conf" type="range" min="20" max="90" value="50">
+  </label>
+  <div id="error"></div>
+</div>
+
+<div id="permission">
+  <div class="card">
+    <h2>Akses Kamera</h2>
+    <p>Izinkan akses kamera untuk menggunakan AI Object Tracker.</p>
+    <button id="allow" type="button">Izinkan Kamera</button>
+    <p id="perr"></p>
+  </div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+<script>
+"use strict";
+
+const $ = id => document.getElementById(id);
+const v = $("video");
+const c = $("canvas");
+const ctx = c.getContext("2d");
+
+const targets = [
+  "mouse",
+  "keyboard",
+  "cell phone",
+  "book",
+  "scissors",
+  "laptop",
+  "person"
+];
+
+const names = {
+  mouse: "Mouse",
+  keyboard: "Keyboard",
+  "cell phone": "HP",
+  book: "Buku",
+  scissors: "Gunting",
+  laptop: "Laptop",
+  person: "Orang"
+};
+
+let stream = null;
+let model = null;
+let facing = "environment";
+let ai = false;
+let busy = false;
+let detecting = false;
+let conf = 0.50;
+let lastSave = 0;
+let logs = [];
+
+function ui(){
+  $("status").textContent =
+    stream ? (ai ? "AI ON" : "Kamera ON") : "Kamera OFF";
+
+  $("ai").classList.toggle("on", ai);
+  $("switch").disabled = !stream;
+  $("flash").disabled = !stream;
+  $("ai").disabled = !stream || !model;
+  $("start").classList.toggle("hide", !!stream);
+}
+
+function message(text, error=false){
+  $("hint").textContent = text;
+  $("error").textContent = error ? text : "";
+  console.log("[AI Tracker]", text);
+}
+
+function showPermissionError(text){
+  $("perr").textContent = text;
+  $("error").textContent = text;
+}
+
+function isSecure(){
+  return window.isSecureContext ||
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1";
+}
+
+/* ================= CAMERA ================= */
+
+async function requestCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showPermissionError("Browser tidak mendukung akses kamera. Gunakan Chrome, Edge, Firefox, atau Safari versi terbaru.");
+    return false;
+  }
+
+  if(!isSecure()){
+    showPermissionError("Kamera web membutuhkan HTTPS atau localhost.");
+    return false;
+  }
+
+  try{
+    const test = await navigator.mediaDevices.getUserMedia({
+      video:true,
+      audio:false
+    });
+
+    test.getTracks().forEach(track => track.stop());
+    return true;
+
+  }catch(e){
+    console.error("Permission:", e);
+
+    let text = "Kamera tidak dapat diakses.";
+
+    if(e.name === "NotAllowedError"){
+      text = "Izin kamera ditolak. Izinkan kamera untuk situs ini di pengaturan browser.";
+    }else if(e.name === "NotFoundError"){
+      text = "Kamera tidak ditemukan.";
+    }else if(e.name === "NotReadableError"){
+      text = "Kamera sedang digunakan aplikasi lain.";
+    }else if(e.name === "SecurityError"){
+      text = "Browser memblokir akses kamera.";
+    }
+
+    showPermissionError(text + " (" + e.name + ")");
+    return false;
+  }
+}
+
+async function openCamera(){
+
+  const allowed = await requestCamera();
+  if(!allowed) return;
+
+  if(stream){
+    stream.getTracks().forEach(t => t.stop());
+  }
+
+  ai = false;
+  detecting = false;
+
+  try{
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:facing},
+        width:{ideal:640},
+        height:{ideal:480}
+      },
+      audio:false
+    });
+
+    v.srcObject = stream;
+    v.muted = true;
+    v.setAttribute("playsinline","");
+    await v.play();
+
+    await new Promise(resolve => {
+      if(v.readyState >= 2){
+        resolve();
+      }else{
+        v.addEventListener("loadedmetadata", resolve, {once:true});
       }
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        background: #000;
-        color: #fff;
-        font-family: system-ui, sans-serif;
-      }
-      #app {
-        position: fixed;
-        inset: 0;
-        background: #000;
-      }
-      video,
-      canvas {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-      canvas {
-        pointer-events: none;
-      }
-      .top {
-        position: absolute;
-        z-index: 5;
-        top: max(14px, env(safe-area-inset-top));
-        left: 12px;
-        right: 12px;
-        display: flex;
-        justify-content: space-between;
-      }
-      .badge {
-        background: #000b;
-        padding: 8px 11px;
-        border-radius: 20px;
-        font-weight: 800;
-        font-size: 12px;
-        backdrop-filter: blur(8px);
-      }
-      .actions {
-        position: absolute;
-        z-index: 5;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-      button {
-        border: 0;
-        color: #fff;
-        background: #000b;
-        border-radius: 50%;
-        width: 52px;
-        height: 52px;
-        font-weight: 800;
-        backdrop-filter: blur(8px);
-      }
-      button.on {
-        background: #ec4899;
-      }
-      button:disabled {
-        opacity: 0.4;
-      }
-      #start {
-        position: absolute;
-        z-index: 6;
-        left: 50%;
-        bottom: max(28px, env(safe-area-inset-bottom));
-        transform: translateX(-50%);
-        border-radius: 28px;
-        width: auto;
-        height: auto;
-        padding: 14px 24px;
-        background: #ec4899;
-        font-size: 15px;
-      }
-      #hint {
-        position: absolute;
-        z-index: 5;
-        left: 50%;
-        top: 72%;
-        transform: translate(-50%, -50%);
-        background: #000b;
-        padding: 10px 14px;
-        border-radius: 16px;
-        text-align: center;
-        font-size: 13px;
-        max-width: 80%;
-      }
-      #panel {
-        position: absolute;
-        z-index: 7;
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
-        background: #000c;
-        border-radius: 16px;
-        padding: 12px;
-        display: none;
-      }
-      #panel.show {
-        display: block;
-      }
-      .row {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-      .row > * {
-        flex: 1;
-      }
-      #panel button {
-        width: auto;
-        height: 38px;
-        border-radius: 10px;
-        background: #333;
-      }
-      input {
-        width: 100%;
-      }
-      #error {
-        color: #ff8c8c;
-        font-size: 12px;
-        margin-top: 6px;
-      }
-      #permission {
-        position: absolute;
-        z-index: 10;
-        inset: 0;
-        background: #000e;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        text-align: center;
-      }
-      .card {
-        max-width: 360px;
-        background: #151515;
-        border-radius: 22px;
-        padding: 24px;
-      }
-      .card button {
-        width: auto;
-        height: auto;
-        border-radius: 12px;
-        padding: 13px 20px;
-        background: #ec4899;
-      }
-      .hide {
-        display: none !important;
-      }
-      #logs {
-        position: absolute;
-        z-index: 4;
-        left: 12px;
-        top: 58px;
-        max-width: 58%;
-        max-height: 100px;
-        overflow: auto;
-        background: #0009;
-        padding: 7px;
-        border-radius: 10px;
-        font-size: 10px;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="app">
-      <video id="video" autoplay muted playsinline></video
-      ><canvas id="canvas"></canvas>
-      <div class="top">
-        <span class="badge">AI TRACKER</span
-        ><span id="status" class="badge">Kamera OFF</span>
-      </div>
-      <div class="actions">
-        <button id="switch" disabled>↻</button>
-        <button id="flash" disabled>⚡</button>
-        <button id="ai" disabled>AI</button>
-        <button id="panelBtn">⚙</button>
-      </div>
-      <button id="start">Buka Kamera</button>
-      <div id="hint">Tekan Buka Kamera</div>
-      <div id="logs">Belum ada deteksi</div>
-      <div id="panel">
-        <div class="row">
-          <button id="load">Muat Model AI</button
-          ><button id="export">CSV</button>
-        </div>
-        <label
-          >Confidence <b id="confText">60%</b
-          ><input id="conf" type="range" min="30" max="90" value="60"
-        /></label>
-        <div id="error"></div>
-      </div>
-      <div id="permission">
-        <div class="card">
-          <h2>Akses Kamera</h2>
-          <p>Izinkan kamera untuk menjalankan deteksi objek AI.</p>
-          <button id="allow">Izinkan Kamera</button>
-          <p id="perr"></p>
-        </div>
-      </div>
-    </div>
+    });
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
-    <script>
-      const $ = (id) => document.getElementById(id);
-      const v = $("video");
-      const c = $("canvas");
-      const ctx = c.getContext("2d");
+    c.width = v.videoWidth || 640;
+    c.height = v.videoHeight || 480;
 
-      const targets = [
-        "mouse",
-        "keyboard",
-        "cell phone",
-        "book",
-        "scissors",
-        "laptop",
-        "person",
-      ];
+    $("permission").classList.add("hide");
 
-      const names = {
-        mouse: "Mouse",
-        keyboard: "Keyboard",
-        "cell phone": "HP",
-        book: "Buku",
-        scissors: "Gunting",
-        laptop: "Laptop",
-        person: "Orang",
-      };
+    message(
+      "Kamera siap. Resolusi " +
+      c.width + "×" + c.height +
+      "."
+    );
 
-      let stream = null;
-      let model = null;
-      let facing = "environment";
-      let ai = false;
-      let busy = false;
-      let conf = 0.5;
-      let lastSave = 0;
-      let logs = [];
-      let detecting = false;
+    ui();
 
-      function ui() {
-        $("status").textContent = stream
-          ? ai
-            ? "AI ON"
-            : "Kamera ON"
-          : "Kamera OFF";
+  }catch(e){
 
-        $("ai").classList.toggle("on", ai);
-        $("flash").disabled = $("switch").disabled = !stream;
-        $("start").classList.toggle("hide", !!stream);
-      }
+    console.error("Camera:", e);
 
-      function msg(text, error = false) {
-        $("hint").textContent = text;
-        $("error").textContent = error ? text : "";
-        console.log("[AI TRACKER]", text);
-      }
+    stream = null;
+    v.srcObject = null;
+    ui();
 
-      /* =========================
-   CAMERA
-========================= */
+    showPermissionError(
+      "Gagal membuka kamera: " +
+      (e.message || e.name)
+    );
 
-      async function openCamera() {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          msg("Browser tidak mendukung kamera.", true);
-          return;
-        }
+  }
+}
 
-        if (!window.isSecureContext && location.hostname !== "localhost") {
-          msg("Gunakan HTTPS.", true);
-          return;
-        }
+/* ================= AI MODEL ================= */
 
-        if (stream) {
-          stream.getTracks().forEach((t) => t.stop());
-        }
+async function loadModel(){
 
-        ai = false;
-        detecting = false;
+  if(model) return true;
 
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: { ideal: facing },
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
-            audio: false,
-          });
+  $("load").disabled = true;
+  $("load").textContent = "Memuat...";
+  message("Menyiapkan TensorFlow...");
 
-          v.srcObject = stream;
-          v.setAttribute("playsinline", "");
-          v.muted = true;
+  try{
 
-          await v.play();
+    await tf.ready();
 
-          await new Promise((resolve) => {
-            if (v.readyState >= 2) {
-              resolve();
-            } else {
-              v.addEventListener("loadedmetadata", resolve, { once: true });
-            }
-          });
+    /*
+      Gunakan WebGL jika tersedia.
+      Jika gagal, fallback ke CPU.
+    */
+    try{
+      await tf.setBackend("webgl");
+      await tf.ready();
+    }catch(e){
+      console.warn("WebGL tidak tersedia:", e);
+      await tf.setBackend("cpu");
+      await tf.ready();
+    }
 
-          c.width = v.videoWidth || 640;
-          c.height = v.videoHeight || 480;
+    message(
+      "Backend AI: " +
+      tf.getBackend() +
+      ". Mengunduh model..."
+    );
 
-          $("permission").classList.add("hide");
+    model = await cocoSsd.load({
+      base:"lite_mobilenet_v2"
+    });
 
-          msg(`Kamera siap ${c.width}x${c.height}. Tekan AI.`);
+    if(stream && v.readyState >= 2){
+      await model.detect(v);
+    }
 
-          ui();
-        } catch (e) {
-          stream = null;
-          ui();
+    $("load").textContent = "AI Siap";
+    $("load").disabled = false;
+    ui();
 
-          msg(
-            e.name === "NotAllowedError"
-              ? "Izin kamera ditolak. Izinkan kamera di Chrome."
-              : e.name === "NotReadableError"
-                ? "Kamera sedang digunakan aplikasi lain."
-                : e.message || "Kamera gagal dibuka.",
-            true,
-          );
-        }
-      }
+    message(
+      "AI siap menggunakan " +
+      tf.getBackend() +
+      ". Tekan AI."
+    );
 
-      /* =========================
-   LOAD MODEL
-========================= */
+    return true;
 
-      async function loadModel() {
-        if (model) return true;
+  }catch(e){
 
-        msg("Menyiapkan TensorFlow...", true);
-        $("load").textContent = "Memuat...";
+    console.error("Model:",e);
 
-        try {
-          /*
-           * Coba WebGL terlebih dahulu.
-           */
-          try {
-            await tf.setBackend("webgl");
-            await tf.ready();
+    model = null;
+    $("load").disabled = false;
+    $("load").textContent = "Muat Model AI";
 
-            console.log("TensorFlow backend:", tf.getBackend());
-          } catch (webglError) {
-            console.warn("WebGL gagal:", webglError);
+    message(
+      "Model gagal dimuat: " +
+      (e.message || e),
+      true
+    );
 
-            /*
-             * Kalau WebGL gagal, gunakan CPU.
-             */
-            await tf.setBackend("cpu");
-            await tf.ready();
+    return false;
+  }
+}
 
-            console.log("TensorFlow fallback:", tf.getBackend());
-          }
+/* ================= DETECTION ================= */
 
-          msg("Backend: " + tf.getBackend() + ". Mengunduh model...");
+async function toggleAI(){
 
-          model = await cocoSsd.load({
-            base: "lite_mobilenet_v2",
-          });
+  if(!stream){
+    await openCamera();
+    if(!stream) return;
+  }
 
-          msg("Model berhasil dimuat. Tes kamera...");
+  if(!model){
+    const ok = await loadModel();
+    if(!ok) return;
+  }
 
-          /*
-           * Jangan pakai tensor manual untuk warm-up.
-           * Langsung tes video.
-           */
-          await model.detect(v);
+  ai = !ai;
+  detecting = ai;
 
-          $("load").textContent = "AI Siap";
-          $("ai").disabled = !stream;
+  ui();
 
-          msg("AI siap (" + tf.getBackend() + "). Tekan AI.");
+  if(ai){
+    message("AI aktif. Mencari objek...");
+    detect();
+  }else{
+    message("AI dimatikan.");
+    ctx.clearRect(0,0,c.width,c.height);
+  }
+}
 
-          return true;
-        } catch (e) {
-          console.error("MODEL ERROR:", e);
+function draw(predictions){
 
-          model = null;
+  ctx.clearRect(0,0,c.width,c.height);
 
-          $("load").textContent = "Muat Model AI";
+  if(!v.videoWidth || !v.videoHeight) return;
 
-          msg("MODEL ERROR: " + (e.message || e), true);
+  const sx = c.width / v.videoWidth;
+  const sy = c.height / v.videoHeight;
 
-          return false;
-        }
-      }
+  for(const p of predictions){
 
-      /* =========================
-   AI TOGGLE
-========================= */
+    if(!targets.includes(p.class)) continue;
+    if(p.score < conf) continue;
 
-      async function toggleAI() {
-        if (!stream) {
-          await openCamera();
+    const [x,y,w,h] = p.bbox;
 
-          if (!stream) return;
-        }
+    const bx = x * sx;
+    const by = y * sy;
+    const bw = w * sx;
+    const bh = h * sy;
 
-        if (!model) {
-          const loaded = await loadModel();
+    ctx.strokeStyle = "#ec4899";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(bx,by,bw,bh);
 
-          if (!loaded) return;
-        }
+    const label =
+      (names[p.class] || p.class) +
+      " " +
+      Math.round(p.score * 100) +
+      "%";
 
-        ai = !ai;
-        detecting = ai;
+    ctx.font = "bold 15px system-ui";
 
-        ui();
+    const width =
+      ctx.measureText(label).width + 14;
 
-        if (ai) {
-          msg("AI aktif. Mencari person, HP, laptop, buku, dll...");
+    const ly = Math.max(by - 26,0);
 
-          detect();
-        } else {
-          msg("AI dimatikan.");
+    ctx.fillStyle = "#ec4899";
+    ctx.fillRect(bx,ly,width,26);
 
-          ctx.clearRect(0, 0, c.width, c.height);
-        }
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label,bx+7,ly+18);
+  }
+}
+
+async function detect(){
+
+  if(!detecting || !stream || !model) return;
+
+  if(!busy && v.readyState >= 2){
+
+    busy = true;
+
+    try{
+
+      const predictions =
+        await model.detect(v);
+
+      console.log("Predictions:",predictions);
+
+      draw(predictions);
+
+      const detected =
+        predictions.filter(p =>
+          targets.includes(p.class) &&
+          p.score >= conf
+        );
+
+      if(detected.length){
+
+        const text = detected.map(p =>
+          (names[p.class] || p.class) +
+          " " +
+          Math.round(p.score * 100) +
+          "%"
+        ).join(", ");
+
+        message(
+          detected.length +
+          " objek: " +
+          text
+        );
+
+        save(detected);
+
+      }else{
+
+        message("AI aktif — belum menemukan objek.");
       }
 
-      /* =========================
-   DRAW
-========================= */
+    }catch(e){
 
-      function draw(predictions) {
-        ctx.clearRect(0, 0, c.width, c.height);
+      console.error("Detection:",e);
 
-        if (!v.videoWidth || !v.videoHeight) {
-          return;
-        }
+      message(
+        "Deteksi error: " +
+        (e.message || e),
+        true
+      );
 
-        const sx = c.width / v.videoWidth;
-        const sy = c.height / v.videoHeight;
+    }finally{
 
-        for (const p of predictions) {
-          if (!targets.includes(p.class)) {
-            continue;
-          }
+      busy = false;
+    }
+  }
 
-          if (p.score < conf) {
-            continue;
-          }
+  setTimeout(detect,300);
+}
 
-          const [x, y, w, h] = p.bbox;
+/* ================= LOG ================= */
 
-          const bx = x * sx;
-          const by = y * sy;
-          const bw = w * sx;
-          const bh = h * sy;
+function save(items){
 
-          ctx.strokeStyle = "#ec4899";
-          ctx.lineWidth = 4;
+  const now = Date.now();
 
-          ctx.strokeRect(bx, by, bw, bh);
+  if(now-lastSave < 2500) return;
 
-          const label = `${names[p.class]} ` + `${Math.round(p.score * 100)}%`;
+  lastSave = now;
 
-          ctx.font = "bold 15px system-ui";
+  const line =
+    new Date().toLocaleTimeString("id-ID") +
+    " — " +
+    items.map(p =>
+      (names[p.class] || p.class) +
+      " " +
+      Math.round(p.score*100) +
+      "%"
+    ).join(", ");
 
-          const labelWidth = ctx.measureText(label).width + 14;
+  logs.unshift(line);
+  logs = logs.slice(0,8);
 
-          const labelY = Math.max(by - 26, 0);
+  $("logs").innerHTML =
+    logs.join("<br>");
+}
 
-          ctx.fillStyle = "#ec4899";
+/* ================= CONTROLS ================= */
 
-          ctx.fillRect(bx, labelY, labelWidth, 26);
+$("allow").addEventListener("click",openCamera);
+$("start").addEventListener("click",openCamera);
+$("ai").addEventListener("click",toggleAI);
+$("load").addEventListener("click",loadModel);
 
-          ctx.fillStyle = "#fff";
+$("panelBtn").addEventListener("click",() => {
+  $("panel").classList.toggle("show");
+});
 
-          ctx.fillText(label, bx + 7, labelY + 18);
-        }
-      }
+$("conf").addEventListener("input",e => {
+  conf = Number(e.target.value)/100;
+  $("confText").textContent =
+    e.target.value + "%";
+});
 
-      /* =========================
-   DETECTION
-========================= */
+$("switch").addEventListener("click",async() => {
+  facing =
+    facing === "environment"
+      ? "user"
+      : "environment";
 
-      async function detect() {
-        if (!detecting || !stream || !model) {
-          return;
-        }
+  await openCamera();
+});
 
-        if (!busy && v.readyState >= 2) {
-          busy = true;
+$("flash").addEventListener("click",async() => {
 
-          try {
-            const predictions = await model.detect(v);
+  const track =
+    stream?.getVideoTracks()[0];
 
-            console.log("Predictions:", predictions);
+  const cap =
+    track?.getCapabilities?.();
 
-            const detected = predictions.filter(
-              (p) => targets.includes(p.class) && p.score >= conf,
-            );
+  if(!cap?.torch){
+    message(
+      "Flash/torch tidak didukung kamera ini.",
+      true
+    );
+    return;
+  }
 
-            draw(predictions);
+  try{
 
-            if (detected.length > 0) {
-              const text = detected
-                .map((p) => `${names[p.class]} ${Math.round(p.score * 100)}%`)
-                .join(", ");
+    const on = !track._torch;
+    track._torch = on;
 
-              msg(`${detected.length} objek: ${text}`);
+    await track.applyConstraints({
+      advanced:[{torch:on}]
+    });
 
-              save(detected);
-            } else {
-              msg("AI aktif — belum menemukan objek.");
-            }
-          } catch (e) {
-            console.error("DETECTION ERROR:", e);
+    $("flash").classList.toggle("on",on);
 
-            /*
-             * Ini penting:
-             * error sekarang muncul langsung
-             * di layar HP.
-             */
-            msg("DETECTION ERROR: " + (e.message || e), true);
+  }catch(e){
 
-            /*
-             * Coba pindah dari WebGL ke CPU
-             * jika inference WebGL bermasalah.
-             */
-            if (tf.getBackend() === "webgl") {
-              try {
-                msg("WebGL bermasalah. Pindah ke CPU...");
+    message(
+      "Flash tidak dapat diaktifkan.",
+      true
+    );
+  }
+});
 
-                await tf.setBackend("cpu");
-                await tf.ready();
+$("export").addEventListener("click",() => {
 
-                console.log("Backend sekarang:", tf.getBackend());
-              } catch (backendError) {
-                console.error("CPU fallback gagal:", backendError);
-              }
-            }
-          } finally {
-            busy = false;
-          }
-        }
+  if(!logs.length) return;
 
-        setTimeout(detect, 300);
-      }
+  const csv =
+    "Waktu,Deteksi\n" +
+    logs.map(x => `"${x}"`).join("\n");
 
-      /* =========================
-   LOG
-========================= */
+  const a =
+    document.createElement("a");
 
-      function save(items) {
-        const now = Date.now();
+  a.href =
+    URL.createObjectURL(
+      new Blob([csv],{type:"text/csv"})
+    );
 
-        if (now - lastSave < 2500) {
-          return;
-        }
+  a.download = "detection-log.csv";
+  a.click();
+});
 
-        lastSave = now;
-
-        const line =
-          new Date().toLocaleTimeString("id-ID") +
-          " — " +
-          items
-            .map((p) => `${names[p.class]} ${Math.round(p.score * 100)}%`)
-            .join(", ");
-
-        logs.unshift(line);
-
-        logs = logs.slice(0, 8);
-
-        $("logs").innerHTML = logs.join("<br>");
-      }
-
-      /* =========================
-   BUTTON
-========================= */
-
-      $("allow").onclick = openCamera;
-
-      $("start").onclick = openCamera;
-
-      $("ai").onclick = toggleAI;
-
-      $("load").onclick = loadModel;
-
-      $("panelBtn").onclick = () => $("panel").classList.toggle("show");
-
-      $("conf").oninput = (e) => {
-        conf = Number(e.target.value) / 100;
-
-        $("confText").textContent = e.target.value + "%";
-      };
-
-      $("switch").onclick = async () => {
-        facing = facing === "environment" ? "user" : "environment";
-
-        await openCamera();
-      };
-
-      $("flash").onclick = async () => {
-        const track = stream?.getVideoTracks()[0];
-
-        const cap = track?.getCapabilities?.();
-
-        if (!cap?.torch) {
-          msg("Flash/torch tidak didukung.", true);
-
-          return;
-        }
-
-        try {
-          const on = !track._torch;
-
-          track._torch = on;
-
-          await track.applyConstraints({
-            advanced: [{ torch: on }],
-          });
-
-          $("flash").classList.toggle("on", on);
-        } catch (e) {
-          msg("Flash tidak dapat diaktifkan.", true);
-        }
-      };
-
-      $("export").onclick = () => {
-        if (!logs.length) {
-          return;
-        }
-
-        const csv = "Waktu,Deteksi\n" + logs.map((x) => `"${x}"`).join("\n");
-
-        const a = document.createElement("a");
-
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-
-        a.download = "detection-log.csv";
-
-        a.click();
-      };
-
-      ui();
-    </script>
-  </body>
+ui();
+</script>
+</body>
 </html>
