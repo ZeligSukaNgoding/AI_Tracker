@@ -226,10 +226,11 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
     <script>
-      const $ = (id) => document.getElementById(id),
-        v = $("video"),
-        c = $("canvas"),
-        ctx = c.getContext("2d");
+      const $ = (id) => document.getElementById(id);
+      const v = $("video");
+      const c = $("canvas");
+      const ctx = c.getContext("2d");
+
       const targets = [
         "mouse",
         "keyboard",
@@ -239,6 +240,7 @@
         "laptop",
         "person",
       ];
+
       const names = {
         mouse: "Mouse",
         keyboard: "Keyboard",
@@ -248,14 +250,16 @@
         laptop: "Laptop",
         person: "Orang",
       };
-      let stream = null,
-        model = null,
-        facing = "environment",
-        ai = false,
-        busy = false,
-        conf = 0.6,
-        lastSave = 0,
-        logs = [];
+
+      let stream = null;
+      let model = null;
+      let facing = "environment";
+      let ai = false;
+      let busy = false;
+      let conf = 0.5;
+      let lastSave = 0;
+      let logs = [];
+      let detecting = false;
 
       function ui() {
         $("status").textContent = stream
@@ -263,25 +267,40 @@
             ? "AI ON"
             : "Kamera ON"
           : "Kamera OFF";
+
         $("ai").classList.toggle("on", ai);
         $("flash").disabled = $("switch").disabled = !stream;
         $("start").classList.toggle("hide", !!stream);
       }
-      function msg(t, e = false) {
-        $("hint").textContent = t;
-        $("error").textContent = e ? t : "";
+
+      function msg(text, error = false) {
+        $("hint").textContent = text;
+        $("error").textContent = error ? text : "";
+        console.log("[AI TRACKER]", text);
       }
+
+      /* =========================
+   CAMERA
+========================= */
+
       async function openCamera() {
         if (!navigator.mediaDevices?.getUserMedia) {
-          msg("Browser tidak mendukung kamera", true);
+          msg("Browser tidak mendukung kamera.", true);
           return;
         }
+
         if (!window.isSecureContext && location.hostname !== "localhost") {
-          msg("Gunakan HTTPS", true);
+          msg("Gunakan HTTPS.", true);
           return;
         }
-        if (stream) stream.getTracks().forEach((t) => t.stop());
+
+        if (stream) {
+          stream.getTracks().forEach((t) => t.stop());
+        }
+
         ai = false;
+        detecting = false;
+
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             video: {
@@ -291,166 +310,357 @@
             },
             audio: false,
           });
+
           v.srcObject = stream;
+          v.setAttribute("playsinline", "");
+          v.muted = true;
+
           await v.play();
-          await new Promise((r) =>
-            v.readyState >= 2
-              ? r()
-              : v.addEventListener("loadedmetadata", r, { once: true }),
-          );
+
+          await new Promise((resolve) => {
+            if (v.readyState >= 2) {
+              resolve();
+            } else {
+              v.addEventListener("loadedmetadata", resolve, { once: true });
+            }
+          });
+
           c.width = v.videoWidth || 640;
           c.height = v.videoHeight || 480;
+
           $("permission").classList.add("hide");
-          msg("Kamera siap. Tekan AI.");
+
+          msg(`Kamera siap ${c.width}x${c.height}. Tekan AI.`);
+
           ui();
         } catch (e) {
           stream = null;
           ui();
+
           msg(
             e.name === "NotAllowedError"
-              ? "Izin kamera ditolak. Izinkan kamera di browser."
-              : e.message,
+              ? "Izin kamera ditolak. Izinkan kamera di Chrome."
+              : e.name === "NotReadableError"
+                ? "Kamera sedang digunakan aplikasi lain."
+                : e.message || "Kamera gagal dibuka.",
             true,
           );
         }
       }
+
+      /* =========================
+   LOAD MODEL
+========================= */
+
       async function loadModel() {
         if (model) return true;
-        msg("Memuat AI...", true);
+
+        msg("Menyiapkan TensorFlow...", true);
         $("load").textContent = "Memuat...";
+
         try {
-          await tf.ready();
-          let backend = "webgl";
+          /*
+           * Coba WebGL terlebih dahulu.
+           */
           try {
             await tf.setBackend("webgl");
             await tf.ready();
-          } catch {
-            backend = "cpu";
+
+            console.log("TensorFlow backend:", tf.getBackend());
+          } catch (webglError) {
+            console.warn("WebGL gagal:", webglError);
+
+            /*
+             * Kalau WebGL gagal, gunakan CPU.
+             */
             await tf.setBackend("cpu");
             await tf.ready();
+
+            console.log("TensorFlow fallback:", tf.getBackend());
           }
-          model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
-          // warm-up supaya prediksi pertama di HP tidak timeout
-          await model.detect(tf.browser.fromPixels(v));
+
+          msg("Backend: " + tf.getBackend() + ". Mengunduh model...");
+
+          model = await cocoSsd.load({
+            base: "lite_mobilenet_v2",
+          });
+
+          msg("Model berhasil dimuat. Tes kamera...");
+
+          /*
+           * Jangan pakai tensor manual untuk warm-up.
+           * Langsung tes video.
+           */
+          await model.detect(v);
+
           $("load").textContent = "AI Siap";
           $("ai").disabled = !stream;
-          msg("AI siap. Tekan AI.");
+
+          msg("AI siap (" + tf.getBackend() + "). Tekan AI.");
+
           return true;
         } catch (e) {
-          console.error(e);
+          console.error("MODEL ERROR:", e);
+
+          model = null;
+
           $("load").textContent = "Muat Model AI";
-          msg("AI gagal dimuat. Cek internet lalu refresh.", true);
+
+          msg("MODEL ERROR: " + (e.message || e), true);
+
           return false;
         }
       }
+
+      /* =========================
+   AI TOGGLE
+========================= */
+
       async function toggleAI() {
         if (!stream) {
           await openCamera();
+
           if (!stream) return;
         }
-        if (!model && !(await loadModel())) return;
+
+        if (!model) {
+          const loaded = await loadModel();
+
+          if (!loaded) return;
+        }
+
         ai = !ai;
+        detecting = ai;
+
         ui();
-        msg(ai ? "Mendeteksi objek..." : "AI dimatikan");
-        if (ai) detect();
-      }
-      function draw(pred) {
-        ctx.clearRect(0, 0, c.width, c.height);
-        const sx = c.width / v.videoWidth,
-          sy = c.height / v.videoHeight;
-        for (const p of pred) {
-          const [x, y, w, h] = p.bbox,
-            target = targets.includes(p.class),
-            good = p.score >= conf;
-          if (!target || !good) continue;
-          ctx.strokeStyle = "#ec4899";
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
-          const text = `${names[p.class]} ${(p.score * 100).toFixed(0)}%`;
-          ctx.font = "bold 14px system-ui";
-          const tw = ctx.measureText(text).width + 12,
-            ly = Math.max(y * sy - 24, 0);
-          ctx.fillStyle = "#ec4899";
-          ctx.fillRect(x * sx, ly, tw, 24);
-          ctx.fillStyle = "#fff";
-          ctx.fillText(text, x * sx + 6, ly + 17);
+
+        if (ai) {
+          msg("AI aktif. Mencari person, HP, laptop, buku, dll...");
+
+          detect();
+        } else {
+          msg("AI dimatikan.");
+
+          ctx.clearRect(0, 0, c.width, c.height);
         }
       }
+
+      /* =========================
+   DRAW
+========================= */
+
+      function draw(predictions) {
+        ctx.clearRect(0, 0, c.width, c.height);
+
+        if (!v.videoWidth || !v.videoHeight) {
+          return;
+        }
+
+        const sx = c.width / v.videoWidth;
+        const sy = c.height / v.videoHeight;
+
+        for (const p of predictions) {
+          if (!targets.includes(p.class)) {
+            continue;
+          }
+
+          if (p.score < conf) {
+            continue;
+          }
+
+          const [x, y, w, h] = p.bbox;
+
+          const bx = x * sx;
+          const by = y * sy;
+          const bw = w * sx;
+          const bh = h * sy;
+
+          ctx.strokeStyle = "#ec4899";
+          ctx.lineWidth = 4;
+
+          ctx.strokeRect(bx, by, bw, bh);
+
+          const label = `${names[p.class]} ` + `${Math.round(p.score * 100)}%`;
+
+          ctx.font = "bold 15px system-ui";
+
+          const labelWidth = ctx.measureText(label).width + 14;
+
+          const labelY = Math.max(by - 26, 0);
+
+          ctx.fillStyle = "#ec4899";
+
+          ctx.fillRect(bx, labelY, labelWidth, 26);
+
+          ctx.fillStyle = "#fff";
+
+          ctx.fillText(label, bx + 7, labelY + 18);
+        }
+      }
+
+      /* =========================
+   DETECTION
+========================= */
+
       async function detect() {
-        if (!ai || !stream || !model) return;
+        if (!detecting || !stream || !model) {
+          return;
+        }
+
         if (!busy && v.readyState >= 2) {
           busy = true;
+
           try {
-            const pred = await model.detect(v);
-            const ok = pred.filter(
+            const predictions = await model.detect(v);
+
+            console.log("Predictions:", predictions);
+
+            const detected = predictions.filter(
               (p) => targets.includes(p.class) && p.score >= conf,
             );
-            draw(pred);
-            $("hint").textContent = ok.length
-              ? `${ok.length} objek terdeteksi`
-              : "Mencari objek...";
-            if (ok.length) save(ok);
+
+            draw(predictions);
+
+            if (detected.length > 0) {
+              const text = detected
+                .map((p) => `${names[p.class]} ${Math.round(p.score * 100)}%`)
+                .join(", ");
+
+              msg(`${detected.length} objek: ${text}`);
+
+              save(detected);
+            } else {
+              msg("AI aktif — belum menemukan objek.");
+            }
           } catch (e) {
-            console.error("detect", e);
+            console.error("DETECTION ERROR:", e);
+
+            /*
+             * Ini penting:
+             * error sekarang muncul langsung
+             * di layar HP.
+             */
+            msg("DETECTION ERROR: " + (e.message || e), true);
+
+            /*
+             * Coba pindah dari WebGL ke CPU
+             * jika inference WebGL bermasalah.
+             */
+            if (tf.getBackend() === "webgl") {
+              try {
+                msg("WebGL bermasalah. Pindah ke CPU...");
+
+                await tf.setBackend("cpu");
+                await tf.ready();
+
+                console.log("Backend sekarang:", tf.getBackend());
+              } catch (backendError) {
+                console.error("CPU fallback gagal:", backendError);
+              }
+            }
+          } finally {
+            busy = false;
           }
-          busy = false;
         }
-        setTimeout(detect, 220);
+
+        setTimeout(detect, 300);
       }
+
+      /* =========================
+   LOG
+========================= */
+
       function save(items) {
         const now = Date.now();
-        if (now - lastSave < 2500) return;
+
+        if (now - lastSave < 2500) {
+          return;
+        }
+
         lastSave = now;
+
         const line =
           new Date().toLocaleTimeString("id-ID") +
           " — " +
           items
-            .map((p) => `${names[p.class]} ${(p.score * 100).toFixed(0)}%`)
+            .map((p) => `${names[p.class]} ${Math.round(p.score * 100)}%`)
             .join(", ");
+
         logs.unshift(line);
+
         logs = logs.slice(0, 8);
+
         $("logs").innerHTML = logs.join("<br>");
       }
+
+      /* =========================
+   BUTTON
+========================= */
+
       $("allow").onclick = openCamera;
+
       $("start").onclick = openCamera;
+
       $("ai").onclick = toggleAI;
+
       $("load").onclick = loadModel;
+
       $("panelBtn").onclick = () => $("panel").classList.toggle("show");
+
       $("conf").oninput = (e) => {
-        conf = e.target.value / 100;
+        conf = Number(e.target.value) / 100;
+
         $("confText").textContent = e.target.value + "%";
       };
+
       $("switch").onclick = async () => {
         facing = facing === "environment" ? "user" : "environment";
+
         await openCamera();
       };
+
       $("flash").onclick = async () => {
-        const t = stream?.getVideoTracks()[0],
-          cap = t?.getCapabilities?.();
+        const track = stream?.getVideoTracks()[0];
+
+        const cap = track?.getCapabilities?.();
+
         if (!cap?.torch) {
-          msg("Flash/torch tidak didukung HP ini", true);
+          msg("Flash/torch tidak didukung.", true);
+
           return;
         }
+
         try {
-          const on = !t._torch;
-          t._torch = on;
-          await t.applyConstraints({ advanced: [{ torch: on }] });
+          const on = !track._torch;
+
+          track._torch = on;
+
+          await track.applyConstraints({
+            advanced: [{ torch: on }],
+          });
+
           $("flash").classList.toggle("on", on);
-        } catch {
-          msg("Flash tidak bisa diaktifkan", true);
+        } catch (e) {
+          msg("Flash tidak dapat diaktifkan.", true);
         }
       };
+
       $("export").onclick = () => {
-        if (!logs.length) return;
+        if (!logs.length) {
+          return;
+        }
+
+        const csv = "Waktu,Deteksi\n" + logs.map((x) => `"${x}"`).join("\n");
+
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(
-          new Blob(["Waktu,Deteksi\n" + logs.map((x) => `"${x}"`).join("\n")], {
-            type: "text/csv",
-          }),
-        );
+
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+
         a.download = "detection-log.csv";
+
         a.click();
       };
+
       ui();
     </script>
   </body>
