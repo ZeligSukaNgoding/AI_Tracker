@@ -7,9 +7,7 @@
       content="width=device-width,initial-scale=1,viewport-fit=cover"
     />
     <meta name="theme-color" content="#000" />
-    <title>AI Object Scanner</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <title>AI Tracker Mobile</title>
     <style>
       * {
         box-sizing: border-box;
@@ -19,18 +17,14 @@
         margin: 0;
         width: 100%;
         height: 100%;
+        overflow: hidden;
         background: #000;
         color: #fff;
         font-family: system-ui, sans-serif;
       }
-      button {
-        border: 0;
-        cursor: pointer;
-      }
-      .camera {
+      #app {
         position: fixed;
         inset: 0;
-        overflow: hidden;
         background: #000;
       }
       video,
@@ -44,262 +38,198 @@
       canvas {
         pointer-events: none;
       }
-      .shade {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background: linear-gradient(
-          #0009,
-          transparent 25%,
-          transparent 65%,
-          #000b
-        );
-      }
       .top {
         position: absolute;
-        z-index: 3;
-        top: max(18px, env(safe-area-inset-top));
-        left: 16px;
-        right: 16px;
+        z-index: 5;
+        top: max(14px, env(safe-area-inset-top));
+        left: 12px;
+        right: 12px;
         display: flex;
         justify-content: space-between;
       }
-      .brand,
-      .status,
-      .action,
-      .permission,
-      .panel,
-      .logs {
-        background: #0008;
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-      }
-      .brand,
-      .status {
-        padding: 8px 12px;
-        border-radius: 99px;
+      .badge {
+        background: #000b;
+        padding: 8px 11px;
+        border-radius: 20px;
         font-weight: 800;
-      }
-      .brand {
-        font-size: 14px;
-      }
-      .status {
-        font-size: 10px;
+        font-size: 12px;
+        backdrop-filter: blur(8px);
       }
       .actions {
         position: absolute;
-        z-index: 3;
+        z-index: 5;
         right: 12px;
         top: 50%;
         transform: translateY(-50%);
-        display: grid;
-        gap: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
       }
-      .action {
-        width: 58px;
-        height: 64px;
-        border: 1px solid #fff3;
-        border-radius: 17px;
+      button {
+        border: 0;
         color: #fff;
+        background: #000b;
+        border-radius: 50%;
+        width: 52px;
+        height: 52px;
         font-weight: 800;
-        font-size: 9px;
+        backdrop-filter: blur(8px);
       }
-      .action b {
-        display: block;
-        font-size: 21px;
-        margin-bottom: 3px;
+      button.on {
+        background: #ec4899;
       }
-      .action.on {
-        background: #ec489955;
-        border-color: #ec4899;
+      button:disabled {
+        opacity: 0.4;
       }
-      .bottom {
+      #start {
         position: absolute;
-        z-index: 3;
-        left: 18px;
-        right: 86px;
-        bottom: max(18px, env(safe-area-inset-bottom));
-        font-size: 11px;
-      }
-      .bottom strong {
-        display: block;
-        font-size: 15px;
-        margin: 3px 0;
-      }
-      .live {
-        color: #ddd;
-      }
-      .start {
-        position: absolute;
-        z-index: 4;
+        z-index: 6;
         left: 50%;
-        bottom: 34px;
+        bottom: max(28px, env(safe-area-inset-bottom));
         transform: translateX(-50%);
-        padding: 15px 22px;
-        border-radius: 99px;
-        background: #fff;
-        color: #111;
-        font-weight: 900;
+        border-radius: 28px;
+        width: auto;
+        height: auto;
+        padding: 14px 24px;
+        background: #ec4899;
+        font-size: 15px;
       }
-      .hidden {
-        display: none !important;
+      #hint {
+        position: absolute;
+        z-index: 5;
+        left: 50%;
+        top: 72%;
+        transform: translate(-50%, -50%);
+        background: #000b;
+        padding: 10px 14px;
+        border-radius: 16px;
+        text-align: center;
+        font-size: 13px;
+        max-width: 80%;
       }
-      .permission-wrap {
-        position: fixed;
-        z-index: 99;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        padding: 22px;
-        background: #000e;
-      }
-      .permission-wrap.hide {
+      #panel {
+        position: absolute;
+        z-index: 7;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        background: #000c;
+        border-radius: 16px;
+        padding: 12px;
         display: none;
       }
-      .permission {
-        width: min(360px, 100%);
-        padding: 26px 20px;
-        border: 1px solid #fff2;
-        border-radius: 24px;
-        text-align: center;
+      #panel.show {
+        display: block;
       }
-      .permission-icon {
-        font-size: 38px;
-      }
-      .permission h2 {
-        margin: 10px 0 8px;
-      }
-      .permission p {
-        color: #bbb;
-        font-size: 13px;
-        line-height: 1.5;
-      }
-      .permission button {
-        width: 100%;
-        padding: 15px;
-        border-radius: 14px;
-        font-weight: 900;
-      }
-      .error {
-        color: #ff9aaa !important;
-        font-size: 11px !important;
-      }
-      .panel {
-        position: fixed;
-        z-index: 10;
-        left: 12px;
-        right: 82px;
-        bottom: 100px;
-        padding: 10px;
-        border-radius: 16px;
-        font-size: 10px;
-      }
-      .panel input {
-        width: 100%;
-      }
-      .panel .row {
+      .row {
         display: flex;
-        gap: 7px;
+        gap: 8px;
         align-items: center;
       }
-      .panel button {
-        padding: 9px 12px;
+      .row > * {
+        flex: 1;
+      }
+      #panel button {
+        width: auto;
+        height: 38px;
         border-radius: 10px;
-        background: #fff;
-        color: #111;
-        font-weight: 800;
+        background: #333;
       }
-      .logs {
-        position: fixed;
-        z-index: 11;
+      input {
+        width: 100%;
+      }
+      #error {
+        color: #ff8c8c;
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      #permission {
+        position: absolute;
+        z-index: 10;
+        inset: 0;
+        background: #000e;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+      }
+      .card {
+        max-width: 360px;
+        background: #151515;
+        border-radius: 22px;
+        padding: 24px;
+      }
+      .card button {
+        width: auto;
+        height: auto;
+        border-radius: 12px;
+        padding: 13px 20px;
+        background: #ec4899;
+      }
+      .hide {
+        display: none !important;
+      }
+      #logs {
+        position: absolute;
+        z-index: 4;
         left: 12px;
-        right: 82px;
-        top: 80px;
-        max-height: 30vh;
+        top: 58px;
+        max-width: 58%;
+        max-height: 100px;
         overflow: auto;
-        padding: 8px;
-        border-radius: 14px;
-        font-size: 10px;
-      }
-      .log {
+        background: #0009;
         padding: 7px;
-        border-bottom: 1px solid #fff2;
+        border-radius: 10px;
+        font-size: 10px;
       }
     </style>
   </head>
   <body>
-    <div class="camera">
-      <video id="video" autoplay playsinline muted></video
+    <div id="app">
+      <video id="video" autoplay muted playsinline></video
       ><canvas id="canvas"></canvas>
-      <div class="shade"></div>
       <div class="top">
-        <div class="brand">AI Camera</div>
-        <div id="status" class="status">Kamera OFF</div>
+        <span class="badge">AI TRACKER</span
+        ><span id="status" class="badge">Kamera OFF</span>
       </div>
       <div class="actions">
-        <button id="switch" class="action"><b>↻</b>Switch</button>
-        <button id="flash" class="action"><b>⚡</b>Flash</button>
-        <button id="ai" class="action"><b>AI</b>AI</button>
+        <button id="switch" disabled>↻</button>
+        <button id="flash" disabled>⚡</button>
+        <button id="ai" disabled>AI</button>
+        <button id="panelBtn">⚙</button>
       </div>
-      <div class="bottom">
-        <span class="live">DETEKSI</span><strong id="count">0 objek</strong
-        ><span id="hint">Izinkan kamera lalu tekan AI.</span>
-      </div>
-      <button id="start" class="start">● Buka Kamera</button>
-    </div>
-    <div id="permission" class="permission-wrap">
-      <div class="permission">
-        <div class="permission-icon">📷</div>
-        <h2>Akses Kamera</h2>
-        <p>Izinkan kamera untuk menggunakan AI Object Scanner.</p>
-        <button id="allow">Izinkan Kamera</button>
-        <p id="error" class="error"></p>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="row">
+      <button id="start">Buka Kamera</button>
+      <div id="hint">Tekan Buka Kamera</div>
+      <div id="logs">Belum ada deteksi</div>
+      <div id="panel">
+        <div class="row">
+          <button id="load">Muat Model AI</button
+          ><button id="export">CSV</button>
+        </div>
         <label
           >Confidence <b id="confText">60%</b
-          ><input id="conf" type="range" min="30" max="90" value="60" /></label
-        ><button id="load">Muat Model AI</button
-        ><button id="export">CSV</button>
+          ><input id="conf" type="range" min="30" max="90" value="60"
+        /></label>
+        <div id="error"></div>
+      </div>
+      <div id="permission">
+        <div class="card">
+          <h2>Akses Kamera</h2>
+          <p>Izinkan kamera untuk menjalankan deteksi objek AI.</p>
+          <button id="allow">Izinkan Kamera</button>
+          <p id="perr"></p>
+        </div>
       </div>
     </div>
-    <div id="logs" class="logs"></div>
 
-    <script type="module">
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js";
-      import {
-        getFirestore,
-        collection,
-        addDoc,
-        getDocs,
-        query,
-        orderBy,
-        limit,
-      } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-firestore.js";
-      const firebaseConfig = {
-        apiKey: "AIzaSyC8diCoPA5K_Hj8VUWClpAzt_AJDqwUIg",
-        authDomain: "praktik-crud-243026027.firebaseapp.com",
-        projectId: "praktik-crud-243026027",
-        storageBucket: "praktik-crud-243026027.firebasestorage.app",
-        messagingSenderId: "345730836224",
-        appId: "1:345730836224:web:c927da0f574f9b1cbfb5e5",
-      };
-      try {
-        const db = getFirestore(initializeApp(firebaseConfig));
-        window.FB = { db, collection, addDoc, getDocs, query, orderBy, limit };
-        window.dispatchEvent(new Event("firebase-ready"));
-      } catch (e) {
-        console.warn("Firebase:", e);
-      }
-    </script>
-
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
     <script>
       const $ = (id) => document.getElementById(id),
         v = $("video"),
         c = $("canvas"),
-        x = c.getContext("2d");
+        ctx = c.getContext("2d");
       const targets = [
         "mouse",
         "keyboard",
@@ -318,269 +248,210 @@
         laptop: "Laptop",
         person: "Orang",
       };
-      const S = {
-        stream: null,
-        model: null,
-        ai: false,
-        busy: false,
-        torch: false,
-        facing: "environment",
-        conf: 0.6,
-        logs: [],
-      };
+      let stream = null,
+        model = null,
+        facing = "environment",
+        ai = false,
+        busy = false,
+        conf = 0.6,
+        lastSave = 0,
+        logs = [];
 
-      const secure = () =>
-        location.protocol === "https:" ||
-        ["localhost", "127.0.0.1"].includes(location.hostname);
       function ui() {
-        $("status").textContent = S.stream
-          ? S.ai
+        $("status").textContent = stream
+          ? ai
             ? "AI ON"
             : "Kamera ON"
           : "Kamera OFF";
-        $("ai").classList.toggle("on", S.ai);
-        $("flash").classList.toggle("on", S.torch);
-        $("start").classList.toggle("hidden", !!S.stream);
-        $("flash").disabled = $("switch").disabled = !S.stream;
+        $("ai").classList.toggle("on", ai);
+        $("flash").disabled = $("switch").disabled = !stream;
+        $("start").classList.toggle("hide", !!stream);
       }
-      function fail(m) {
-        $("error").textContent = m;
+      function msg(t, e = false) {
+        $("hint").textContent = t;
+        $("error").textContent = e ? t : "";
       }
-
-      async function camera() {
-        stop();
-        if (!navigator.mediaDevices?.getUserMedia)
-          throw Error("Browser tidak mendukung kamera.");
-        if (!secure()) throw Error("Gunakan HTTPS atau localhost.");
+      async function openCamera() {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          msg("Browser tidak mendukung kamera", true);
+          return;
+        }
+        if (!window.isSecureContext && location.hostname !== "localhost") {
+          msg("Gunakan HTTPS", true);
+          return;
+        }
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        ai = false;
         try {
-          S.stream = await navigator.mediaDevices.getUserMedia({
+          stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              facingMode: { ideal: S.facing },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
+              facingMode: { ideal: facing },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
             },
             audio: false,
           });
-          v.srcObject = S.stream;
+          v.srcObject = stream;
           await v.play();
-          c.width = v.videoWidth || 1280;
-          c.height = v.videoHeight || 720;
+          await new Promise((r) =>
+            v.readyState >= 2
+              ? r()
+              : v.addEventListener("loadedmetadata", r, { once: true }),
+          );
+          c.width = v.videoWidth || 640;
+          c.height = v.videoHeight || 480;
+          $("permission").classList.add("hide");
+          msg("Kamera siap. Tekan AI.");
           ui();
         } catch (e) {
-          S.stream = null;
-          v.srcObject = null;
+          stream = null;
           ui();
-          throw e;
+          msg(
+            e.name === "NotAllowedError"
+              ? "Izin kamera ditolak. Izinkan kamera di browser."
+              : e.message,
+            true,
+          );
         }
       }
-      async function permission() {
+      async function loadModel() {
+        if (model) return true;
+        msg("Memuat AI...", true);
+        $("load").textContent = "Memuat...";
         try {
-          await camera();
-          $("permission").classList.add("hide");
-          $("error").textContent = "";
+          await tf.ready();
+          let backend = "webgl";
+          try {
+            await tf.setBackend("webgl");
+            await tf.ready();
+          } catch {
+            backend = "cpu";
+            await tf.setBackend("cpu");
+            await tf.ready();
+          }
+          model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+          // warm-up supaya prediksi pertama di HP tidak timeout
+          await model.detect(tf.browser.fromPixels(v));
+          $("load").textContent = "AI Siap";
+          $("ai").disabled = !stream;
+          msg("AI siap. Tekan AI.");
           return true;
         } catch (e) {
-          fail(
-            e.name === "NotAllowedError"
-              ? "Izin kamera ditolak. Izinkan kamera untuk situs ini."
-              : e.name === "NotFoundError"
-                ? "Kamera tidak ditemukan."
-                : e.name === "NotReadableError"
-                  ? "Kamera sedang dipakai aplikasi lain."
-                  : e.message || "Kamera gagal dibuka.",
-          );
+          console.error(e);
+          $("load").textContent = "Muat Model AI";
+          msg("AI gagal dimuat. Cek internet lalu refresh.", true);
           return false;
         }
       }
-      function stop() {
-        S.ai = false;
-        if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
-        S.stream = null;
-        v.srcObject = null;
-        x.clearRect(0, 0, c.width, c.height);
-        ui();
-      }
-
-      async function loadModel() {
-        if (S.model) return;
-        $("load").textContent = "Memuat...";
-        $("hint").textContent = "Memuat model AI...";
-        try {
-          await tf.ready();
-          S.model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
-          $("load").textContent = "Model Siap";
-          $("hint").textContent = "Model siap. Tekan AI.";
-        } catch (e) {
-          console.error("Model:", e);
-          $("load").textContent = "Muat Model AI";
-          $("hint").textContent = "Model gagal dimuat.";
-        }
-      }
       async function toggleAI() {
-        if (!S.stream && !(await permission())) return;
-        if (!S.model) await loadModel();
-        if (!S.model) return;
-        S.ai = !S.ai;
-        ui();
-        $("hint").textContent = S.ai ? "Mendeteksi objek..." : "AI dimatikan";
-        if (S.ai) detect();
-      }
-      async function detect() {
-        if (!S.ai || !S.stream || !S.model) return;
-        if (!S.busy && v.readyState >= 2) {
-          S.busy = true;
-          try {
-            const p = await S.model.detect(v),
-              ok = p.filter(
-                (a) => targets.includes(a.class) && a.score >= S.conf,
-              );
-            draw(p);
-            $("count").textContent = ok.length + " objek";
-            if (ok.length) save(ok);
-          } catch (e) {
-            console.error("Detection:", e);
-          } finally {
-            S.busy = false;
-          }
+        if (!stream) {
+          await openCamera();
+          if (!stream) return;
         }
-        requestAnimationFrame(detect);
+        if (!model && !(await loadModel())) return;
+        ai = !ai;
+        ui();
+        msg(ai ? "Mendeteksi objek..." : "AI dimatikan");
+        if (ai) detect();
       }
-      function draw(list) {
-        x.clearRect(0, 0, c.width, c.height);
-        if (!v.videoWidth || !v.videoHeight) return;
+      function draw(pred) {
+        ctx.clearRect(0, 0, c.width, c.height);
         const sx = c.width / v.videoWidth,
           sy = c.height / v.videoHeight;
-        list.forEach((p) => {
-          const [a, b, w, h] = p.bbox,
-            t = targets.includes(p.class),
-            good = p.score >= S.conf;
-          x.strokeStyle = t ? "#ec4899" : "#fff";
-          x.lineWidth = good ? 3 : 1.5;
-          x.strokeRect(a * sx, b * sy, w * sx, h * sy);
-          if (t && good) {
-            const z = `${names[p.class]} ${(p.score * 100).toFixed(0)}%`,
-              q = x.measureText(z).width + 12,
-              y = Math.max(b * sy - 24, 0);
-            x.font = "bold 14px system-ui";
-            x.fillStyle = "#ec4899";
-            x.fillRect(a * sx, y, q, 24);
-            x.fillStyle = "#fff";
-            x.fillText(z, a * sx + 6, y + 17);
-          }
-        });
+        for (const p of pred) {
+          const [x, y, w, h] = p.bbox,
+            target = targets.includes(p.class),
+            good = p.score >= conf;
+          if (!target || !good) continue;
+          ctx.strokeStyle = "#ec4899";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+          const text = `${names[p.class]} ${(p.score * 100).toFixed(0)}%`;
+          ctx.font = "bold 14px system-ui";
+          const tw = ctx.measureText(text).width + 12,
+            ly = Math.max(y * sy - 24, 0);
+          ctx.fillStyle = "#ec4899";
+          ctx.fillRect(x * sx, ly, tw, 24);
+          ctx.fillStyle = "#fff";
+          ctx.fillText(text, x * sx + 6, ly + 17);
+        }
       }
-      async function save(items) {
-        const now = Date.now();
-        if (save.last && now - save.last < 3000) return;
-        save.last = now;
-        const data = {
-          time: new Date().toISOString(),
-          items: items.map((a) => ({
-            class: a.class,
-            name: names[a.class] || a.class,
-            score: Number(a.score.toFixed(3)),
-          })),
-        };
-        S.logs.unshift({
-          time: new Date().toLocaleString("id-ID"),
-          items: items.map(
-            (a) => `${names[a.class]} ${(a.score * 100).toFixed(0)}%`,
-          ),
-        });
-        S.logs = S.logs.slice(0, 30);
-        localStorage.aiLogs = JSON.stringify(S.logs);
-        renderLogs();
-        if (window.FB)
+      async function detect() {
+        if (!ai || !stream || !model) return;
+        if (!busy && v.readyState >= 2) {
+          busy = true;
           try {
-            await window.FB.addDoc(
-              window.FB.collection(window.FB.db, "detections"),
-              data,
+            const pred = await model.detect(v);
+            const ok = pred.filter(
+              (p) => targets.includes(p.class) && p.score >= conf,
             );
+            draw(pred);
+            $("hint").textContent = ok.length
+              ? `${ok.length} objek terdeteksi`
+              : "Mencari objek...";
+            if (ok.length) save(ok);
           } catch (e) {
-            console.warn("Firebase save:", e);
+            console.error("detect", e);
           }
+          busy = false;
+        }
+        setTimeout(detect, 220);
       }
-      function renderLogs() {
-        $("logs").innerHTML =
-          S.logs
-            .map(
-              (a) =>
-                `<div class="log">${a.time}<br>${a.items.join(", ")}</div>`,
-            )
-            .join("") || "Belum ada log";
+      function save(items) {
+        const now = Date.now();
+        if (now - lastSave < 2500) return;
+        lastSave = now;
+        const line =
+          new Date().toLocaleTimeString("id-ID") +
+          " — " +
+          items
+            .map((p) => `${names[p.class]} ${(p.score * 100).toFixed(0)}%`)
+            .join(", ");
+        logs.unshift(line);
+        logs = logs.slice(0, 8);
+        $("logs").innerHTML = logs.join("<br>");
       }
-      function exportCSV() {
-        if (!S.logs.length) return alert("Belum ada log.");
-        const csv =
-            "Waktu,Deteksi\n" +
-            S.logs.map((a) => `"${a.time}","${a.items.join("; ")}"`).join("\n"),
-          a = document.createElement("a");
+      $("allow").onclick = openCamera;
+      $("start").onclick = openCamera;
+      $("ai").onclick = toggleAI;
+      $("load").onclick = loadModel;
+      $("panelBtn").onclick = () => $("panel").classList.toggle("show");
+      $("conf").oninput = (e) => {
+        conf = e.target.value / 100;
+        $("confText").textContent = e.target.value + "%";
+      };
+      $("switch").onclick = async () => {
+        facing = facing === "environment" ? "user" : "environment";
+        await openCamera();
+      };
+      $("flash").onclick = async () => {
+        const t = stream?.getVideoTracks()[0],
+          cap = t?.getCapabilities?.();
+        if (!cap?.torch) {
+          msg("Flash/torch tidak didukung HP ini", true);
+          return;
+        }
+        try {
+          const on = !t._torch;
+          t._torch = on;
+          await t.applyConstraints({ advanced: [{ torch: on }] });
+          $("flash").classList.toggle("on", on);
+        } catch {
+          msg("Flash tidak bisa diaktifkan", true);
+        }
+      };
+      $("export").onclick = () => {
+        if (!logs.length) return;
+        const a = document.createElement("a");
         a.href = URL.createObjectURL(
-          new Blob(["\ufeff" + csv], { type: "text/csv" }),
+          new Blob(["Waktu,Deteksi\n" + logs.map((x) => `"${x}"`).join("\n")], {
+            type: "text/csv",
+          }),
         );
         a.download = "detection-log.csv";
         a.click();
-        URL.revokeObjectURL(a.href);
-      }
-      $("allow").onclick = permission;
-      $("start").onclick = permission;
-      $("switch").onclick = async () => {
-        S.facing = S.facing === "environment" ? "user" : "environment";
-        S.torch = false;
-        if (S.stream) await camera();
       };
-      $("flash").onclick = async () => {
-        const t = S.stream?.getVideoTracks()[0],
-          q = t?.getCapabilities?.();
-        if (!q?.torch) return alert("Flash tidak didukung.");
-        S.torch = !S.torch;
-        try {
-          await t.applyConstraints({ advanced: [{ torch: S.torch }] });
-        } catch {
-          S.torch = false;
-        }
-        ui();
-      };
-      $("ai").onclick = toggleAI;
-      $("load").onclick = loadModel;
-      $("export").onclick = exportCSV;
-      $("conf").oninput = (e) => {
-        S.conf = e.target.value / 100;
-        $("confText").textContent = e.target.value + "%";
-      };
-      try {
-        S.logs = JSON.parse(localStorage.aiLogs || "[]");
-      } catch {
-        S.logs = [];
-      }
-      renderLogs();
       ui();
-
-      async function loadFirebaseLogs() {
-        if (!window.FB) return;
-        try {
-          const q = window.FB.query(
-              window.FB.collection(window.FB.db, "detections"),
-              window.FB.orderBy("time", "desc"),
-              window.FB.limit(30),
-            ),
-            snap = await window.FB.getDocs(q);
-          S.logs = snap.docs.map((d) => {
-            const a = d.data();
-            return {
-              time: a.time || "",
-              items: (a.items || []).map(
-                (i) =>
-                  `${i.name || i.class} ${(Number(i.score || 0) * 100).toFixed(0)}%`,
-              ),
-            };
-          });
-          renderLogs();
-        } catch (e) {
-          console.warn("Firebase load:", e);
-        }
-      }
-      window.addEventListener("firebase-ready", loadFirebaseLogs);
     </script>
   </body>
 </html>
