@@ -291,7 +291,7 @@
       <div id="targetSub" class="target-sub">Nyalakan kamera lalu aktifkan AI.</div>
       <div id="chips" class="chips">
         <span class="chip neutral">COCO-SSD</span>
-        <span class="chip neutral">60% confidence</span>
+        <span class="chip neutral">35% confidence</span>
       </div>
     </section>
 
@@ -361,12 +361,12 @@
 
         <div class="setting">
           <div class="setting-row">
-            <div><h3>AI Detection</h3><p>COCO-SSD · browser-side inference</p></div>
+            <div><h3>AI Detection</h3><p>COCO-SSD MobileNet v2 · browser-side inference</p></div>
             <button id="aiToggle" class="toggle"></button>
           </div>
-          <input id="confidenceRange" class="range" type="range" min="30" max="90" step="5" value="60" />
+          <input id="confidenceRange" class="range" type="range" min="30" max="90" step="5" value="35" />
           <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:7px">
-            <span>Confidence threshold</span><strong id="confidenceValue">60%</strong>
+            <span>Confidence threshold</span><strong id="confidenceValue">35%</strong>
           </div>
         </div>
 
@@ -446,7 +446,21 @@
     const SAVE_THROTTLE = 3000;
     const MAX_LOGS = 50;
 
-    const TARGET_CLASSES = [
+    const CLASS_THRESHOLDS = {
+      person:0.28,
+      "cell phone":0.22,
+      mouse:0.20,
+      keyboard:0.25,
+      laptop:0.28,
+      book:0.25,
+      scissors:0.25
+    };
+
+    function classThreshold(cls){
+      return CLASS_THRESHOLDS[cls] ?? state.confidence;
+    }
+
+const TARGET_CLASSES = [
       "person","mouse","keyboard","cell phone","book","scissors","laptop"
     ];
 
@@ -465,7 +479,7 @@
       frame:null,
       facingMode:"environment",
       torch:false,
-      confidence:.60,
+      confidence:.35,
       targets:new Set(TARGET_CLASSES),
       db:null,
       firebase:false,
@@ -651,7 +665,7 @@
         const [x,y,w,h]=p.bbox;
         const X=x*sx,Y=y*sy,W=w*sx,H=h*sy;
         const target=state.targets.has(p.class);
-        const pass=p.score>=state.confidence;
+        const pass=p.score>=Math.max(state.confidence,classThreshold(p.class));
 
         if(!target || !pass) continue;
 
@@ -695,8 +709,8 @@
       if(!state.busy && video.readyState>=2){
         state.busy=true;
         try{
-          const predictions=await state.model.detect(video);
-          const targets=predictions.filter(p=>state.targets.has(p.class)&&p.score>=state.confidence);
+          const predictions=await state.model.detect(video, 20, 0.15);
+          const targets=predictions.filter(p=>state.targets.has(p.class)&&p.score>=Math.max(state.confidence,classThreshold(p.class)));
           drawDetections(predictions);
           updateDetectionSummary(targets);
           if(targets.length) await saveLog(targets);
@@ -716,8 +730,12 @@
       $("targetTitle").textContent="Memuat AI...";
       try{
         await tf.ready();
-        state.model=await cocoSsd.load({base:"lite_mobilenet_v2"});
-        $("modelText").textContent="COCO-SSD siap";
+        state.model=await cocoSsd.load({base:"mobilenet_v2"});
+        // Warm up the model once so the first real frame does not lag.
+        const warmCanvas=document.createElement("canvas");
+        warmCanvas.width=320; warmCanvas.height=240;
+        await state.model.detect(warmCanvas, 5, 0.15);
+        $("modelText").textContent="COCO-SSD MobileNet v2 siap";
         toast("Model AI siap digunakan");
       }catch(err){
         console.error(err);
@@ -742,8 +760,8 @@
         state.stream=await navigator.mediaDevices.getUserMedia({
           video:{
             facingMode:{ideal:state.facingMode},
-            width:{ideal:1920},
-            height:{ideal:1080}
+            width:{ideal:1280},
+            height:{ideal:720}
           },
           audio:false
         });
