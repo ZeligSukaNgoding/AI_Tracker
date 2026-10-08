@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
   <head>
     <meta charset="utf-8" />
@@ -247,7 +247,6 @@
       </div>
       <button id="start" class="start">● Buka Kamera</button>
     </div>
-
     <div id="permission" class="permission-wrap">
       <div class="permission">
         <div class="permission-icon">📷</div>
@@ -257,14 +256,13 @@
         <p id="error" class="error"></p>
       </div>
     </div>
-
     <div class="panel">
       <div class="row">
         <label
           >Confidence <b id="confText">60%</b
-          ><input id="conf" type="range" min="30" max="90" value="60"
-        /></label>
-        <button id="load">Muat Model AI</button><button id="export">CSV</button>
+          ><input id="conf" type="range" min="30" max="90" value="60" /></label
+        ><button id="load">Muat Model AI</button
+        ><button id="export">CSV</button>
       </div>
     </div>
     <div id="logs" class="logs"></div>
@@ -280,20 +278,21 @@
         orderBy,
         limit,
       } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-firestore.js";
-
       const firebaseConfig = {
-        apiKey: "AIzaSyC8diOpCo5K_Hj8VUWClpAzt_AJDqwUIg",
+        apiKey: "AIzaSyC8diCoPA5K_Hj8VUWClpAzt_AJDqwUIg",
         authDomain: "praktik-crud-243026027.firebaseapp.com",
         projectId: "praktik-crud-243026027",
         storageBucket: "praktik-crud-243026027.firebasestorage.app",
         messagingSenderId: "345730836224",
         appId: "1:345730836224:web:c927da0f574f9b1cbfb5e5",
       };
-
-      const app = initializeApp(firebaseConfig),
-        db = getFirestore(app);
-      window.FB = { db, collection, addDoc, getDocs, query, orderBy, limit };
-      window.dispatchEvent(new Event("firebase-ready"));
+      try {
+        const db = getFirestore(initializeApp(firebaseConfig));
+        window.FB = { db, collection, addDoc, getDocs, query, orderBy, limit };
+        window.dispatchEvent(new Event("firebase-ready"));
+      } catch (e) {
+        console.warn("Firebase:", e);
+      }
     </script>
 
     <script>
@@ -347,29 +346,12 @@
       function fail(m) {
         $("error").textContent = m;
       }
-      async function permission() {
-        if (!navigator.mediaDevices?.getUserMedia)
-          return (fail("Browser tidak mendukung kamera."), false);
-        if (!secure()) return (fail("Gunakan HTTPS atau localhost."), false);
-        try {
-          let s = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-          });
-          s.getTracks().forEach((t) => t.stop());
-          $("permission").classList.add("hide");
-          return true;
-        } catch (e) {
-          fail(
-            e.name === "NotAllowedError"
-              ? "Izin kamera ditolak. Aktifkan kamera di browser."
-              : "Kamera tidak dapat diakses.",
-          );
-          return false;
-        }
-      }
+
       async function camera() {
         stop();
+        if (!navigator.mediaDevices?.getUserMedia)
+          throw Error("Browser tidak mendukung kamera.");
+        if (!secure()) throw Error("Gunakan HTTPS atau localhost.");
         try {
           S.stream = await navigator.mediaDevices.getUserMedia({
             video: {
@@ -381,11 +363,33 @@
           });
           v.srcObject = S.stream;
           await v.play();
-          c.width = v.videoWidth;
-          c.height = v.videoHeight;
+          c.width = v.videoWidth || 1280;
+          c.height = v.videoHeight || 720;
           ui();
         } catch (e) {
-          fail("Gagal membuka kamera: " + e.message);
+          S.stream = null;
+          v.srcObject = null;
+          ui();
+          throw e;
+        }
+      }
+      async function permission() {
+        try {
+          await camera();
+          $("permission").classList.add("hide");
+          $("error").textContent = "";
+          return true;
+        } catch (e) {
+          fail(
+            e.name === "NotAllowedError"
+              ? "Izin kamera ditolak. Izinkan kamera untuk situs ini."
+              : e.name === "NotFoundError"
+                ? "Kamera tidak ditemukan."
+                : e.name === "NotReadableError"
+                  ? "Kamera sedang dipakai aplikasi lain."
+                  : e.message || "Kamera gagal dibuka.",
+          );
+          return false;
         }
       }
       function stop() {
@@ -396,24 +400,24 @@
         x.clearRect(0, 0, c.width, c.height);
         ui();
       }
+
       async function loadModel() {
         if (S.model) return;
         $("load").textContent = "Memuat...";
+        $("hint").textContent = "Memuat model AI...";
         try {
           await tf.ready();
           S.model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
           $("load").textContent = "Model Siap";
           $("hint").textContent = "Model siap. Tekan AI.";
         } catch (e) {
+          console.error("Model:", e);
           $("load").textContent = "Muat Model AI";
           $("hint").textContent = "Model gagal dimuat.";
         }
       }
       async function toggleAI() {
-        if (!S.stream) {
-          if (!(await permission())) return;
-          await camera();
-        }
+        if (!S.stream && !(await permission())) return;
         if (!S.model) await loadModel();
         if (!S.model) return;
         S.ai = !S.ai;
@@ -426,13 +430,15 @@
         if (!S.busy && v.readyState >= 2) {
           S.busy = true;
           try {
-            let p = await S.model.detect(v),
+            const p = await S.model.detect(v),
               ok = p.filter(
                 (a) => targets.includes(a.class) && a.score >= S.conf,
               );
             draw(p);
             $("count").textContent = ok.length + " objek";
             if (ok.length) save(ok);
+          } catch (e) {
+            console.error("Detection:", e);
           } finally {
             S.busy = false;
           }
@@ -441,20 +447,21 @@
       }
       function draw(list) {
         x.clearRect(0, 0, c.width, c.height);
-        let sx = c.width / v.videoWidth,
+        if (!v.videoWidth || !v.videoHeight) return;
+        const sx = c.width / v.videoWidth,
           sy = c.height / v.videoHeight;
         list.forEach((p) => {
-          let [a, b, w, h] = p.bbox,
+          const [a, b, w, h] = p.bbox,
             t = targets.includes(p.class),
             good = p.score >= S.conf;
           x.strokeStyle = t ? "#ec4899" : "#fff";
           x.lineWidth = good ? 3 : 1.5;
           x.strokeRect(a * sx, b * sy, w * sx, h * sy);
           if (t && good) {
-            let z = `${names[p.class]} ${(p.score * 100).toFixed(0)}%`;
-            x.font = "bold 14px system-ui";
-            let q = x.measureText(z).width + 12,
+            const z = `${names[p.class]} ${(p.score * 100).toFixed(0)}%`,
+              q = x.measureText(z).width + 12,
               y = Math.max(b * sy - 24, 0);
+            x.font = "bold 14px system-ui";
             x.fillStyle = "#ec4899";
             x.fillRect(a * sx, y, q, 24);
             x.fillStyle = "#fff";
@@ -462,10 +469,18 @@
           }
         });
       }
-      function save(items) {
-        let now = Date.now();
+      async function save(items) {
+        const now = Date.now();
         if (save.last && now - save.last < 3000) return;
         save.last = now;
+        const data = {
+          time: new Date().toISOString(),
+          items: items.map((a) => ({
+            class: a.class,
+            name: names[a.class] || a.class,
+            score: Number(a.score.toFixed(3)),
+          })),
+        };
         S.logs.unshift({
           time: new Date().toLocaleString("id-ID"),
           items: items.map(
@@ -475,6 +490,15 @@
         S.logs = S.logs.slice(0, 30);
         localStorage.aiLogs = JSON.stringify(S.logs);
         renderLogs();
+        if (window.FB)
+          try {
+            await window.FB.addDoc(
+              window.FB.collection(window.FB.db, "detections"),
+              data,
+            );
+          } catch (e) {
+            console.warn("Firebase save:", e);
+          }
       }
       function renderLogs() {
         $("logs").innerHTML =
@@ -487,7 +511,7 @@
       }
       function exportCSV() {
         if (!S.logs.length) return alert("Belum ada log.");
-        let csv =
+        const csv =
             "Waktu,Deteksi\n" +
             S.logs.map((a) => `"${a.time}","${a.items.join("; ")}"`).join("\n"),
           a = document.createElement("a");
@@ -496,20 +520,17 @@
         );
         a.download = "detection-log.csv";
         a.click();
+        URL.revokeObjectURL(a.href);
       }
-      $("allow").onclick = async () => {
-        if (await permission()) camera();
-      };
-      $("start").onclick = async () => {
-        if (await permission()) camera();
-      };
+      $("allow").onclick = permission;
+      $("start").onclick = permission;
       $("switch").onclick = async () => {
         S.facing = S.facing === "environment" ? "user" : "environment";
         S.torch = false;
-        await camera();
+        if (S.stream) await camera();
       };
       $("flash").onclick = async () => {
-        let t = S.stream?.getVideoTracks()[0],
+        const t = S.stream?.getVideoTracks()[0],
           q = t?.getCapabilities?.();
         if (!q?.torch) return alert("Flash tidak didukung.");
         S.torch = !S.torch;
@@ -527,7 +548,11 @@
         S.conf = e.target.value / 100;
         $("confText").textContent = e.target.value + "%";
       };
-      S.logs = [];
+      try {
+        S.logs = JSON.parse(localStorage.aiLogs || "[]");
+      } catch {
+        S.logs = [];
+      }
       renderLogs();
       ui();
 
@@ -535,20 +560,27 @@
         if (!window.FB) return;
         try {
           const q = window.FB.query(
-            window.FB.collection(window.FB.db, "detections"),
-            window.FB.orderBy("time", "desc"),
-            window.FB.limit(30),
-          );
-          const snap = await window.FB.getDocs(q);
-          S.logs = snap.docs.map((d) => d.data());
+              window.FB.collection(window.FB.db, "detections"),
+              window.FB.orderBy("time", "desc"),
+              window.FB.limit(30),
+            ),
+            snap = await window.FB.getDocs(q);
+          S.logs = snap.docs.map((d) => {
+            const a = d.data();
+            return {
+              time: a.time || "",
+              items: (a.items || []).map(
+                (i) =>
+                  `${i.name || i.class} ${(Number(i.score || 0) * 100).toFixed(0)}%`,
+              ),
+            };
+          });
           renderLogs();
         } catch (e) {
           console.warn("Firebase load:", e);
         }
       }
-
       window.addEventListener("firebase-ready", loadFirebaseLogs);
-      $("permission").classList.remove("hide");
     </script>
   </body>
 </html>
