@@ -128,7 +128,7 @@
     .bottom-nav{
       position:absolute;z-index:12;left:0;right:0;bottom:0;
       padding:9px 16px calc(8px + var(--safe-bottom));
-      display:grid;grid-template-columns:1fr 1fr 1fr;
+      display:grid;grid-template-columns:1fr 1fr;
       background:linear-gradient(180deg,transparent,rgba(0,0,0,.82) 25%);
     }
     .nav-btn{
@@ -334,10 +334,6 @@
           <span id="logBadge" class="nav-badge" hidden>0</span>
         </span>
         Log Data
-      </button>
-      <button class="nav-btn" id="infoNav">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>
-        Info
       </button>
     </nav>
 
@@ -1074,7 +1070,6 @@ const TARGET_CLASSES = [
     $("aiBtn").addEventListener("click",toggleAI);
     $("settingsBtn").addEventListener("click",()=>openSheet("settingsSheet"));
     $("logNav").addEventListener("click",()=>{renderLogs();openSheet("logSheet")});
-    $("infoNav").addEventListener("click",()=>openSheet("infoSheet"));
     $("scannerNav").addEventListener("click",closeSheets);
     $("sheetBackdrop").addEventListener("click",closeSheets);
     document.querySelectorAll("[data-close-sheet]").forEach(b=>b.addEventListener("click",closeSheets));
