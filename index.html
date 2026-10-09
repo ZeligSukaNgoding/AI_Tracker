@@ -16,11 +16,11 @@
       --line:rgba(255,255,255,.12);
       --text:#fff;
       --muted:rgba(255,255,255,.62);
-      --accent:#ff4fb3;
+      --accent:#372f33;
       --accent-2:#7c5cff;
       --glass:rgba(12,14,20,.62);
       --success:#36e38a;
-      --danger:#ff5b6e;
+      --danger:#848484;
       --safe-top:env(safe-area-inset-top,0px);
       --safe-bottom:env(safe-area-inset-bottom,0px);
     }
@@ -159,13 +159,27 @@
     .ai-fab svg{width:21px;height:21px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
     .toast{
-      position:absolute;z-index:40;left:50%;top:calc(72px + var(--safe-top));
-      transform:translate(-50%,-12px);opacity:0;pointer-events:none;
-      padding:10px 13px;border-radius:12px;background:rgba(10,10,12,.9);
-      border:1px solid var(--line);backdrop-filter:blur(15px);
-      font-size:11px;white-space:nowrap;transition:.22s ease;
+      position:absolute;z-index:45;left:16px;right:16px;top:calc(68px + var(--safe-top));
+      transform:translateY(-8px);opacity:0;pointer-events:none;
+      padding:14px 16px;border-radius:15px;background:#17171c;
+      border:1px solid rgba(255,255,255,.2);box-shadow:0 12px 36px rgba(0,0,0,.45);
+      font-size:13px;font-weight:700;line-height:1.45;white-space:normal;text-align:center;
+      transition:.22s ease;
     }
-    .toast.show{opacity:1;transform:translate(-50%,0)}
+    .toast.show{opacity:1;transform:translateY(0)}
+    .confirm-backdrop{
+      position:absolute;z-index:60;inset:0;display:none;place-items:center;
+      padding:24px;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);
+    }
+    .confirm-backdrop.open{display:grid}
+    .confirm-card{width:min(100%,360px);padding:22px;border-radius:22px;background:#17171c;border:1px solid rgba(255,255,255,.16);box-shadow:0 20px 60px rgba(0,0,0,.55)}
+    .confirm-icon{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:rgba(255,91,110,.14);color:var(--danger);font-size:24px;margin-bottom:14px}
+    .confirm-card h2{font-size:19px;margin:0 0 9px}
+    .confirm-card p{font-size:13px;line-height:1.55;color:var(--muted);margin:0 0 20px}
+    .confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .confirm-actions button{min-height:46px;border-radius:13px;font-size:13px;font-weight:800}
+    .confirm-cancel{background:rgba(255,255,255,.08);border:1px solid var(--line);color:#fff}
+    .confirm-delete{background:var(--danger);border:0;color:#fff}
 
     .sheet-backdrop{
       position:absolute;z-index:30;inset:0;background:rgba(0,0,0,.48);
@@ -305,7 +319,7 @@
       <div id="targetSub" class="target-sub">Nyalakan kamera lalu aktifkan AI.</div>
       <div id="chips" class="chips">
         <span class="chip neutral">COCO-SSD</span>
-        <span class="chip neutral">35% confidence</span>
+        <span class="chip neutral">20% confidence</span>
       </div>
     </section>
 
@@ -327,7 +341,18 @@
       </button>
     </nav>
 
-    <div id="toast" class="toast"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="confirmBackdrop" class="confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="confirm-card">
+        <div class="confirm-icon">!</div>
+        <h2 id="confirmTitle">Hapus semua log?</h2>
+        <p id="confirmMessage">Semua riwayat deteksi lokal dan cloud akan dihapus. Tindakan ini tidak dapat dibatalkan.</p>
+        <div class="confirm-actions">
+          <button id="cancelDeleteBtn" class="confirm-cancel">Batal</button>
+          <button id="confirmDeleteBtn" class="confirm-delete">Hapus Semua</button>
+        </div>
+      </div>
+    </div>
     <div id="sheetBackdrop" class="sheet-backdrop"></div>
 
     <section id="logSheet" class="sheet">
@@ -342,7 +367,7 @@
       <div id="logList" class="log-list"></div>
       <div class="action-row">
         <button id="exportBtn" class="sheet-btn primary">Export CSV</button>
-        <button id="clearBtn" class="sheet-btn danger">Hapus Semua Log</button>
+        <button id="clearBtn" class="sheet-btn danger">🗑 Hapus Semua Log</button>
       </div>
     </section>
 
@@ -373,9 +398,9 @@
             <div><h3>AI Detection</h3><p>COCO-SSD MobileNet v2 · browser-side inference</p></div>
             <button id="aiToggle" class="toggle"></button>
           </div>
-          <input id="confidenceRange" class="range" type="range" min="30" max="90" step="5" value="35" />
+          <input id="confidenceRange" class="range" type="range" min="5" max="80" step="5" value="10" />
           <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:7px">
-            <span>Confidence threshold</span><strong id="confidenceValue">35%</strong>
+            <span>Confidence threshold</span><strong id="confidenceValue">10%</strong>
           </div>
         </div>
 
@@ -414,7 +439,7 @@
         <div class="setting"><h3>1 · Camera</h3><p>getUserMedia() digunakan untuk mengakses kamera perangkat. Browser membutuhkan HTTPS atau localhost.</p></div>
         <div class="setting"><h3>2 · Switch Camera</h3><p>Memilih facingMode environment atau user. Pada sebagian perangkat, browser dapat memilih kamera yang paling sesuai.</p></div>
         <div class="setting"><h3>3 · Flash</h3><p>Flash/torch hanya tersedia jika kamera dan browser mengekspos constraint <b>torch</b>. Jika tidak tersedia, aplikasi akan memberi notifikasi.</p></div>
-        <div class="setting"><h3>4 · AI Detection</h3><p>COCO-SSD berjalan di sisi klien dan menggambar bounding box langsung di canvas.</p></div>
+        <div class="setting"><h3>4 · AI Detection</h3><p>COCO-SSD berjalan di sisi klien dan menggambar bounding box langsung di canvas. Turunkan confidence ke 10–20% jika objek sulit terdeteksi. Model hanya mengenali kelas objek yang didukung COCO-SSD.</p></div>
         <div class="setting"><h3>5 · Firebase</h3><p>Log deteksi dapat disimpan ke Firestore. Jika Firebase gagal/tidak aktif, aplikasi memakai LocalStorage sebagai fallback.</p></div>
       </div>
     </section>
@@ -456,14 +481,16 @@
     const SAVE_THROTTLE = 3000;
     const MAX_LOGS = 50;
 
+    // Thresholds rendah agar deteksi objek yang kecil/jauh tidak langsung dibuang.
+    // Mouse dan keyboard bukan kelas yang didukung model COCO-SSD standar.
     const CLASS_THRESHOLDS = {
-      person:0.28,
-      "cell phone":0.22,
-      mouse:0.20,
-      keyboard:0.25,
-      laptop:0.28,
-      book:0.25,
-      scissors:0.25
+      person:0.12,
+      "cell phone":0.10,
+      mouse:0.10,
+      keyboard:0.10,
+      laptop:0.12,
+      book:0.10,
+      scissors:0.10
     };
 
     function classThreshold(cls){
@@ -489,7 +516,7 @@ const TARGET_CLASSES = [
       frame:null,
       facingMode:"environment",
       torch:false,
-      confidence:.35,
+      confidence:.20,
       targets:new Set(TARGET_CLASSES),
       db:null,
       firebase:false,
@@ -511,7 +538,15 @@ const TARGET_CLASSES = [
       t.textContent=message;
       t.classList.add("show");
       clearTimeout(toast.timer);
-      toast.timer=setTimeout(()=>t.classList.remove("show"),2400);
+      toast.timer=setTimeout(()=>t.classList.remove("show"),5000);
+    }
+
+    function openDeleteConfirmation(){
+      $("confirmBackdrop").classList.add("open");
+      $("cancelDeleteBtn").focus();
+    }
+    function closeDeleteConfirmation(){
+      $("confirmBackdrop").classList.remove("open");
     }
 
     function setStatus(text,type=""){
@@ -729,11 +764,18 @@ const TARGET_CLASSES = [
       ctx.restore();
     }
 
-    function updateDetectionSummary(targets){
+    function updateDetectionSummary(targets, raw=[]){
       if(!targets.length){
-        $('targetTitle').textContent=state.detecting?'Mencari objek...':'Siap memindai';
-        $('targetSub').textContent=state.detecting?'Arahkan kamera ke objek target.':'Nyalakan kamera lalu aktifkan AI.';
-        $('chips').innerHTML='<span class="chip neutral">COCO-SSD</span><span class="chip neutral">'+Math.round(state.confidence*100)+'% confidence</span>';
+        $('targetTitle').textContent=state.detecting?'Belum ada target':'Siap memindai';
+        const top=[...raw].sort((a,b)=>b.score-a.score).slice(0,3);
+        if(top.length){
+          const seen=top.map(p=>`${LABELS[p.class]||p.class} ${Math.round(p.score*100)}%`).join(' · ');
+          $('targetSub').textContent=`AI melihat: ${seen}. Turunkan confidence atau dekatkan objek.`;
+          $('chips').innerHTML=top.map(p=>`<span class="chip neutral">${escapeHtml(LABELS[p.class]||p.class)} ${Math.round(p.score*100)}%</span>`).join('');
+        }else{
+          $('targetSub').textContent=state.detecting?'AI berjalan, tetapi belum mengenali objek. Pastikan wajah/tubuh terlihat jelas, cukup cahaya, dan kamera tidak terlalu jauh.':'Nyalakan kamera lalu aktifkan AI.';
+          $('chips').innerHTML='<span class="chip neutral">Model aktif</span><span class="chip neutral">Ambang '+Math.round(state.confidence*100)+'%</span>';
+        }
         return;
       }
       const labels=[...new Set(targets.map(p=>LABELS[p.class]||p.class))];
@@ -748,12 +790,14 @@ const TARGET_CLASSES = [
       if(!state.busy&&video.readyState>=2){
         state.busy=true;
         try{
-          const raw=await state.model.detect(video,20,0.12);
+          if(video.videoWidth<2 || video.videoHeight<2) throw new Error('Video kamera belum siap. Matikan lalu nyalakan kamera kembali.');
+          const raw=await state.model.detect(video,30,0.05);
           const targets=stabilize(raw);
           drawDetections(targets);
-          updateDetectionSummary(targets);
+          updateDetectionSummary(targets,raw);
+          $('modelText').textContent=`AI aktif · ${raw.length} prediksi mentah · ${targets.length} target`;
           if(targets.length) await saveLog(targets);
-        }catch(err){console.error('Detection:',err);}
+        }catch(err){console.error('Detection:',err); $('targetTitle').textContent='Deteksi bermasalah'; $('targetSub').textContent=(err?.message||'Model gagal membaca frame kamera').slice(0,140); $('modelText').textContent='Error deteksi: '+(err?.message||err?.name||'tidak diketahui');}
         finally{state.busy=false;}
       }
       state.frame=requestAnimationFrame(detectFrame);
@@ -771,12 +815,14 @@ const TARGET_CLASSES = [
         const warmCanvas=document.createElement("canvas");
         warmCanvas.width=320; warmCanvas.height=240;
         await state.model.detect(warmCanvas, 5, 0.15);
-        $("modelText").textContent="COCO-SSD MobileNet v2 siap";
+        $("modelText").textContent="Model siap · COCO-SSD MobileNet v2";
         toast("Model AI siap digunakan");
       }catch(err){
         console.error(err);
-        $("modelText").textContent="Gagal memuat model";
-        toast("Model AI gagal dimuat");
+        $("modelText").textContent="Gagal: "+(err?.message||err?.name||"model tidak tersedia");
+        $("targetTitle").textContent="AI gagal dimuat";
+        $("targetSub").textContent="Periksa internet, lalu tekan Muat Model lagi.";
+        toast("AI gagal dimuat. Buka Pengaturan > Status model.");
       }finally{
         state.loadingModel=false;
       }
@@ -974,27 +1020,34 @@ const TARGET_CLASSES = [
     }
 
     async function clearLocal(){
-      if(!confirm("Hapus semua log deteksi? Data lokal dan data Firestore akan dihapus jika akses diizinkan.")) return;
+      closeDeleteConfirmation();
+      const btn=$("confirmDeleteBtn");
+      btn.disabled=true;
+      btn.textContent="Menghapus…";
+      try{
+        // Hapus cache lokal terlebih dahulu agar tombol tetap berguna saat offline.
+        localStorage.removeItem(LOCAL_KEY);
+        state.logs=[];
+        renderLogs();
 
-      // Hapus cache lokal terlebih dahulu agar tombol tetap berguna saat offline.
-      localStorage.removeItem(LOCAL_KEY);
-      state.logs=[];
-      renderLogs();
-
-      if(state.firebase && state.db){
-        try{
-          const snap = await getDocs(collection(state.db, LOG_COLLECTION));
-          // Hapus semua dokumen, bukan hanya 50 log yang sedang ditampilkan.
-          for(const docSnap of snap.docs){
-            await deleteDoc(docSnap.ref);
+        if(state.firebase && state.db){
+          try{
+            const snap = await getDocs(collection(state.db, LOG_COLLECTION));
+            for(const docSnap of snap.docs) await deleteDoc(docSnap.ref);
+            toast("BERHASIL — Semua log lokal dan Firestore telah dihapus.");
+          }catch(err){
+            console.error("Gagal menghapus log Firestore:", err);
+            toast("SEBAGIAN BERHASIL — Log lokal terhapus, tetapi Firestore menolak penghapusan. Periksa Firestore Security Rules.");
           }
-          toast("Semua log lokal dan Firestore berhasil dihapus");
-        }catch(err){
-          console.error("Gagal menghapus log Firestore:", err);
-          toast("Log lokal dihapus, tetapi Firestore menolak penghapusan. Periksa Security Rules.");
+        }else{
+          toast("BERHASIL — Semua log lokal telah dihapus.");
         }
-      }else{
-        toast("Semua log lokal berhasil dihapus");
+      }catch(err){
+        console.error("Gagal menghapus log lokal:",err);
+        toast("GAGAL — Log tidak dapat dihapus. Periksa penyimpanan aplikasi.");
+      }finally{
+        btn.disabled=false;
+        btn.textContent="Hapus Semua";
       }
     }
 
@@ -1022,10 +1075,14 @@ const TARGET_CLASSES = [
     $("confidenceRange").addEventListener("input",e=>{
       state.confidence=Number(e.target.value)/100;
       $("confidenceValue").textContent=e.target.value+"%";
+      $("chips").innerHTML=`<span class="chip neutral">COCO-SSD</span><span class="chip neutral">${e.target.value}% confidence</span>`;
     });
     $("loadModelBtn").addEventListener("click",loadModel);
     $("exportBtn").addEventListener("click",exportCsv);
-    $("clearBtn").addEventListener("click",clearLocal);
+    $("clearBtn").addEventListener("click",openDeleteConfirmation);
+    $("cancelDeleteBtn").addEventListener("click",closeDeleteConfirmation);
+    $("confirmDeleteBtn").addEventListener("click",clearLocal);
+    $("confirmBackdrop").addEventListener("click",e=>{if(e.target.id==="confirmBackdrop")closeDeleteConfirmation()});
     window.addEventListener("resize",resizeCanvas);
     window.addEventListener("beforeunload",()=>stopCamera(false));
 
