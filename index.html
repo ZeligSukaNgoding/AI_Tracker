@@ -756,7 +756,14 @@ const TARGET_CLASSES = [
       for(const p of predictions){
         if(!state.targets.has(p.class)) continue;
         const [x,y,w,h]=p.bbox;
-        const X=x*t.scale-t.cropX,Y=y*t.scale-t.cropY,W=w*t.scale,H=h*t.scale;
+        // Tighten the VISUAL frame slightly so it is easier to see on narrow mobile screens.
+        // The original model bbox is retained for tracking/logging; this only affects drawing.
+        const insetX=Math.min(w*0.06, Math.max(2, video.videoWidth*0.012));
+        const insetY=Math.min(h*0.035, Math.max(2, video.videoHeight*0.008));
+        const X=(x+insetX)*t.scale-t.cropX;
+        const Y=(y+insetY)*t.scale-t.cropY;
+        const W=Math.max(2,(w-2*insetX)*t.scale);
+        const H=Math.max(2,(h-2*insetY)*t.scale);
         if(X+W<0||Y+H<0||X>t.w||Y>t.h) continue;
         const label=`${LABELS[p.class]||p.class} ${Math.round(p.score*100)}%`;
         const fontSize=Math.max(11,Math.min(15,t.w/28));
