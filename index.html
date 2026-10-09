@@ -18,6 +18,7 @@
       --muted:rgba(255,255,255,.62);
       --accent:#ff4fb3;
       --accent-2:#7c5cff;
+      --glass:rgba(12,14,20,.62);
       --success:#36e38a;
       --danger:#ff5b6e;
       --safe-top:env(safe-area-inset-top,0px);
@@ -97,7 +98,7 @@
       display:flex;flex-direction:column;gap:10px;
     }
     .round-control{
-      width:48px;height:48px;border:1px solid rgba(255,255,255,.15);
+      width:46px;height:46px;border:1px solid rgba(255,255,255,.18);
       border-radius:50%;display:grid;place-items:center;
       color:#fff;background:rgba(10,10,12,.58);
       backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
@@ -227,6 +228,14 @@
       border:1px solid rgba(54,227,138,.14);color:rgba(255,255,255,.72);font-size:9px;line-height:1.5
     }
 
+    @media (max-height:700px){
+      .side-controls{top:48%;gap:6px;right:10px}
+      .round-control{width:42px;height:42px}
+      .target-card{bottom:78px}
+      .target-title{font-size:23px}
+      .ai-fab{width:62px;height:62px;bottom:48px}
+      .bottom-nav{padding-top:5px}
+    }
     @media (min-width:700px){
       .topbar{padding-left:24px;padding-right:24px}
       .side-controls{right:24px}
@@ -486,7 +495,9 @@ const TARGET_CLASSES = [
       unsubscribe:null,
       logs:[],
       lastSave:0,
-      cameraReady:false
+      cameraReady:false,
+      detectionTracks:[],
+      frameCount:0
     };
 
     const $ = id => document.getElementById(id);
@@ -647,78 +658,102 @@ const TARGET_CLASSES = [
       }
     }
 
+    // Canvas coordinates are mapped to the same center-cropped viewport as video object-fit:cover.
     function resizeCanvas(){
-      if(video.videoWidth && video.videoHeight){
-        canvas.width=video.videoWidth;
-        canvas.height=video.videoHeight;
+      const r=canvas.getBoundingClientRect();
+      const dpr=Math.min(window.devicePixelRatio||1,2);
+      const w=Math.max(1,Math.round(r.width*dpr)), h=Math.max(1,Math.round(r.height*dpr));
+      if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+    }
+
+    function visibleTransform(){
+      const r=canvas.getBoundingClientRect(), vw=video.videoWidth||1, vh=video.videoHeight||1;
+      const scale=Math.max(r.width/vw,r.height/vh);
+      return {scale,cropX:(vw*scale-r.width)/2,cropY:(vh*scale-r.height)/2,dpr:canvas.width/Math.max(r.width,1),w:r.width,h:r.height};
+    }
+
+    function iou(a,b){
+      const x=Math.max(0,Math.min(a[0]+a[2],b[0]+b[2])-Math.max(a[0],b[0]));
+      const y=Math.max(0,Math.min(a[1]+a[3],b[1]+b[3])-Math.max(a[1],b[1]));
+      const inter=x*y, union=a[2]*a[3]+b[2]*b[3]-inter;
+      return union>0?inter/union:0;
+    }
+
+    // Blend boxes from adjacent frames and retain them for two frames to reduce flicker.
+    function stabilize(predictions){
+      state.frameCount++;
+      const valid=predictions.filter(p=>state.targets.has(p.class)&&p.score>=Math.max(state.confidence,classThreshold(p.class)));
+      const next=[];
+      for(const p of valid){
+        let match=null, overlap=.18;
+        for(const old of state.detectionTracks){
+          if(old.class!==p.class) continue;
+          const v=iou(old.bbox,p.bbox);
+          if(v>overlap){overlap=v;match=old;}
+        }
+        if(match){
+          next.push({...p,bbox:p.bbox.map((v,i)=>v*.65+match.bbox[i]*.35),score:Math.max(p.score,match.score*.94),seen:(match.seen||1)+1,lastFrame:state.frameCount});
+          match.lastFrame=state.frameCount;
+        }else next.push({...p,seen:1,lastFrame:state.frameCount});
       }
+      for(const old of state.detectionTracks){
+        const age=state.frameCount-(old.lastFrame||0);
+        if(age>0&&age<=2&&!next.some(n=>n.class===old.class&&iou(n.bbox,old.bbox)>.18)) next.push({...old,score:old.score*.9});
+      }
+      state.detectionTracks=next.filter(p=>p.score>=Math.max(state.confidence,classThreshold(p.class))*.78).slice(0,30);
+      return state.detectionTracks;
     }
 
     function drawDetections(predictions){
-      resizeCanvas();
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-
-      const sx=canvas.width/Math.max(video.videoWidth,1);
-      const sy=canvas.height/Math.max(video.videoHeight,1);
-
+      resizeCanvas(); ctx.clearRect(0,0,canvas.width,canvas.height);
+      const t=visibleTransform(); ctx.save(); ctx.scale(t.dpr,t.dpr);
       for(const p of predictions){
+        if(!state.targets.has(p.class)) continue;
         const [x,y,w,h]=p.bbox;
-        const X=x*sx,Y=y*sy,W=w*sx,H=h*sy;
-        const target=state.targets.has(p.class);
-        const pass=p.score>=Math.max(state.confidence,classThreshold(p.class));
-
-        if(!target || !pass) continue;
-
-        ctx.lineWidth=Math.max(2,canvas.width/500);
-        ctx.strokeStyle="#ff4fb3";
+        const X=x*t.scale-t.cropX,Y=y*t.scale-t.cropY,W=w*t.scale,H=h*t.scale;
+        if(X+W<0||Y+H<0||X>t.w||Y>t.h) continue;
+        const label=`${LABELS[p.class]||p.class} ${Math.round(p.score*100)}%`;
+        const fontSize=Math.max(11,Math.min(15,t.w/28));
+        ctx.font=`700 ${fontSize}px system-ui`;
+        const tw=ctx.measureText(label).width+18, lh=25;
+        const bx=Math.max(0,Math.min(X,t.w-tw));
+        const by=Y-lh>=0?Y-lh:Math.min(t.h-lh,Y+H);
+        ctx.lineWidth=p.seen>=2?2.5:2;
+        ctx.strokeStyle=p.seen>=2?'#38f2a0':'#ff4fb3';
         ctx.strokeRect(X,Y,W,H);
-
-        const label=`${LABELS[p.class]||p.class} ${(p.score*100).toFixed(0)}%`;
-        ctx.font=`800 ${Math.max(12,canvas.width/70)}px system-ui`;
-        const tw=ctx.measureText(label).width+16;
-        const lh=Math.max(24,canvas.width/45);
-        const ly=Math.max(0,Y-lh);
-
-        ctx.fillStyle="#ff4fb3";
-        ctx.fillRect(X,ly,tw,lh);
-        ctx.fillStyle="#fff";
-        ctx.fillText(label,X+8,ly+lh*.68);
+        ctx.fillStyle=p.seen>=2?'#087d50':'#d92e8f';
+        ctx.fillRect(bx,by,tw,lh);
+        ctx.fillStyle='#fff'; ctx.fillText(label,bx+9,by+17);
       }
+      ctx.restore();
     }
 
-    function updateDetectionSummary(targetPredictions){
-      if(!targetPredictions.length){
-        $("targetTitle").textContent=state.detecting ? "Mencari objek..." : "Siap memindai";
-        $("targetSub").textContent=state.detecting ? "Arahkan kamera ke objek target." : "Nyalakan kamera lalu aktifkan AI.";
+    function updateDetectionSummary(targets){
+      if(!targets.length){
+        $('targetTitle').textContent=state.detecting?'Mencari objek...':'Siap memindai';
+        $('targetSub').textContent=state.detecting?'Arahkan kamera ke objek target.':'Nyalakan kamera lalu aktifkan AI.';
+        $('chips').innerHTML='<span class="chip neutral">COCO-SSD</span><span class="chip neutral">'+Math.round(state.confidence*100)+'% confidence</span>';
         return;
       }
-
-      const labels=[...new Set(targetPredictions.map(p=>LABELS[p.class]||p.class))];
-      $("targetTitle").textContent=labels[0];
-      $("targetSub").textContent=`Terdeteksi ${targetPredictions.length} objek · confidence ≥ ${Math.round(state.confidence*100)}%`;
-      $("chips").innerHTML=labels.slice(0,5).map(x=>`<span class="chip">${escapeHtml(x)}</span>`).join("");
+      const labels=[...new Set(targets.map(p=>LABELS[p.class]||p.class))];
+      $('targetTitle').textContent=labels[0];
+      $('targetSub').textContent=`Terdeteksi ${targets.length} objek · confidence terbaik ${Math.round(Math.max(...targets.map(p=>p.score))*100)}%`;
+      $('chips').innerHTML=labels.slice(0,5).map(x=>`<span class="chip">${escapeHtml(x)}</span>`).join('');
     }
 
     async function detectFrame(){
       if(!state.detecting) return;
-      if(!state.cameraReady || !state.model){
-        stopAI();
-        return;
-      }
-
-      if(!state.busy && video.readyState>=2){
+      if(!state.cameraReady||!state.model){stopAI();return;}
+      if(!state.busy&&video.readyState>=2){
         state.busy=true;
         try{
-          const predictions=await state.model.detect(video, 20, 0.15);
-          const targets=predictions.filter(p=>state.targets.has(p.class)&&p.score>=Math.max(state.confidence,classThreshold(p.class)));
-          drawDetections(predictions);
+          const raw=await state.model.detect(video,20,0.12);
+          const targets=stabilize(raw);
+          drawDetections(targets);
           updateDetectionSummary(targets);
           if(targets.length) await saveLog(targets);
-        }catch(err){
-          console.error("Detection:",err);
-        }finally{
-          state.busy=false;
-        }
+        }catch(err){console.error('Detection:',err);}
+        finally{state.busy=false;}
       }
       state.frame=requestAnimationFrame(detectFrame);
     }
@@ -863,6 +898,7 @@ const TARGET_CLASSES = [
     function stopAI(){
       state.detecting=false;
       state.busy=false;
+      state.detectionTracks=[];
       if(state.frame)cancelAnimationFrame(state.frame);
       state.frame=null;
       $("aiBtn").classList.remove("active");
