@@ -16,11 +16,11 @@
       --line:rgba(255,255,255,.12);
       --text:#fff;
       --muted:rgba(255,255,255,.62);
-      --accent:#372f33;
+      --accent:#ff4fb3;
       --accent-2:#7c5cff;
       --glass:rgba(12,14,20,.62);
       --success:#36e38a;
-      --danger:#848484;
+      --danger:#ff5b6e;
       --safe-top:env(safe-area-inset-top,0px);
       --safe-bottom:env(safe-area-inset-bottom,0px);
     }
@@ -319,7 +319,7 @@
       <div id="targetSub" class="target-sub">Nyalakan kamera lalu aktifkan AI.</div>
       <div id="chips" class="chips">
         <span class="chip neutral">COCO-SSD</span>
-        <span class="chip neutral">20% confidence</span>
+        <span class="chip neutral">Person adaptif · skor asli</span>
       </div>
     </section>
 
@@ -398,9 +398,9 @@
             <div><h3>AI Detection</h3><p>COCO-SSD MobileNet v2 · browser-side inference</p></div>
             <button id="aiToggle" class="toggle"></button>
           </div>
-          <input id="confidenceRange" class="range" type="range" min="5" max="80" step="5" value="10" />
+          <input id="confidenceRange" class="range" type="range" min="5" max="80" step="5" value="60" />
           <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:7px">
-            <span>Confidence threshold</span><strong id="confidenceValue">10%</strong>
+            <span>Ambang objek lain · Person adaptif</span><strong id="confidenceValue">60%</strong>
           </div>
         </div>
 
@@ -494,7 +494,17 @@
     };
 
     function classThreshold(cls){
+      // Person memakai ambang adaptif rendah agar tidak gagal hanya karena
+      // skor berbeda antar kamera. Skor yang ditampilkan tetap skor asli model.
+      if(cls === "person") return 0.12;
       return CLASS_THRESHOLDS[cls] ?? state.confidence;
+    }
+
+    function acceptanceThreshold(cls){
+      // Untuk person, utamakan deteksi konsisten lintas perangkat; slider tidak
+      // boleh menyaring hasil person yang model nilai 12–60%.
+      if(cls === "person") return 0.12;
+      return Math.max(state.confidence, classThreshold(cls));
     }
 
 const TARGET_CLASSES = [
@@ -516,7 +526,7 @@ const TARGET_CLASSES = [
       frame:null,
       facingMode:"environment",
       torch:false,
-      confidence:.20,
+      confidence:.60,
       targets:new Set(TARGET_CLASSES),
       db:null,
       firebase:false,
@@ -718,7 +728,7 @@ const TARGET_CLASSES = [
     // Blend boxes from adjacent frames and retain them for two frames to reduce flicker.
     function stabilize(predictions){
       state.frameCount++;
-      const valid=predictions.filter(p=>state.targets.has(p.class)&&p.score>=Math.max(state.confidence,classThreshold(p.class)));
+      const valid=predictions.filter(p=>state.targets.has(p.class)&&p.score>=acceptanceThreshold(p.class));
       const next=[];
       for(const p of valid){
         let match=null, overlap=.18;
@@ -736,7 +746,7 @@ const TARGET_CLASSES = [
         const age=state.frameCount-(old.lastFrame||0);
         if(age>0&&age<=2&&!next.some(n=>n.class===old.class&&iou(n.bbox,old.bbox)>.18)) next.push({...old,score:old.score*.9});
       }
-      state.detectionTracks=next.filter(p=>p.score>=Math.max(state.confidence,classThreshold(p.class))*.78).slice(0,30);
+      state.detectionTracks=next.filter(p=>p.score>=acceptanceThreshold(p.class)*.78).slice(0,30);
       return state.detectionTracks;
     }
 
@@ -770,7 +780,7 @@ const TARGET_CLASSES = [
         const top=[...raw].sort((a,b)=>b.score-a.score).slice(0,3);
         if(top.length){
           const seen=top.map(p=>`${LABELS[p.class]||p.class} ${Math.round(p.score*100)}%`).join(' · ');
-          $('targetSub').textContent=`AI melihat: ${seen}. Turunkan confidence atau dekatkan objek.`;
+          $('targetSub').textContent=`AI melihat: ${seen}. Skor kandidat masih rendah. Dekatkan kamera dan tambah pencahayaan.`;
           $('chips').innerHTML=top.map(p=>`<span class="chip neutral">${escapeHtml(LABELS[p.class]||p.class)} ${Math.round(p.score*100)}%</span>`).join('');
         }else{
           $('targetSub').textContent=state.detecting?'AI berjalan, tetapi belum mengenali objek. Pastikan wajah/tubuh terlihat jelas, cukup cahaya, dan kamera tidak terlalu jauh.':'Nyalakan kamera lalu aktifkan AI.';
@@ -1075,7 +1085,7 @@ const TARGET_CLASSES = [
     $("confidenceRange").addEventListener("input",e=>{
       state.confidence=Number(e.target.value)/100;
       $("confidenceValue").textContent=e.target.value+"%";
-      $("chips").innerHTML=`<span class="chip neutral">COCO-SSD</span><span class="chip neutral">${e.target.value}% confidence</span>`;
+      $("chips").innerHTML=`<span class="chip neutral">COCO-SSD</span><span class="chip neutral">Ambang objek lain ${e.target.value}%</span><span class="chip neutral">Person adaptif 12% + stabilisasi</span>`;
     });
     $("loadModelBtn").addEventListener("click",loadModel);
     $("exportBtn").addEventListener("click",exportCsv);
