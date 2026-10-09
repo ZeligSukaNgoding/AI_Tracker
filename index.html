@@ -342,7 +342,7 @@
       <div id="logList" class="log-list"></div>
       <div class="action-row">
         <button id="exportBtn" class="sheet-btn primary">Export CSV</button>
-        <button id="clearBtn" class="sheet-btn danger">Clear Local</button>
+        <button id="clearBtn" class="sheet-btn danger">Hapus Semua Log</button>
       </div>
     </section>
 
@@ -428,6 +428,7 @@
     import {
       addDoc,
       collection,
+      deleteDoc,
       getDocs,
       getFirestore,
       limit,
@@ -972,13 +973,29 @@ const TARGET_CLASSES = [
       a.click();URL.revokeObjectURL(url);
     }
 
-    function clearLocal(){
-      if(state.firebase){toast("Firebase aktif — log cloud tidak dihapus dari sini");return}
-      if(!confirm("Hapus semua log lokal?"))return;
+    async function clearLocal(){
+      if(!confirm("Hapus semua log deteksi? Data lokal dan data Firestore akan dihapus jika akses diizinkan.")) return;
+
+      // Hapus cache lokal terlebih dahulu agar tombol tetap berguna saat offline.
       localStorage.removeItem(LOCAL_KEY);
       state.logs=[];
       renderLogs();
-      toast("Log lokal dihapus");
+
+      if(state.firebase && state.db){
+        try{
+          const snap = await getDocs(collection(state.db, LOG_COLLECTION));
+          // Hapus semua dokumen, bukan hanya 50 log yang sedang ditampilkan.
+          for(const docSnap of snap.docs){
+            await deleteDoc(docSnap.ref);
+          }
+          toast("Semua log lokal dan Firestore berhasil dihapus");
+        }catch(err){
+          console.error("Gagal menghapus log Firestore:", err);
+          toast("Log lokal dihapus, tetapi Firestore menolak penghapusan. Periksa Security Rules.");
+        }
+      }else{
+        toast("Semua log lokal berhasil dihapus");
+      }
     }
 
     $("cameraBtn").addEventListener("click",()=>state.cameraReady?stopCamera():startCamera());
